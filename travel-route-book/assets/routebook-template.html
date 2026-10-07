@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{TITLE}}</title>
+<style>
+/* travel-route-book template. Tested rules (do not remove):
+   - [hidden] must win over any display rule, or offline copies show every page stacked.
+   - Without JS every section stays visible (one long page), so phone file previews still work. */
+:root{
+  --bg:#f6f4ef; --card:#ffffff; --ink:#1f2328; --muted:#5f6670; --line:#e3ded3;
+  --accent:#2f5d62; --accent-soft:#e3eeee; --warn:#9a4b00; --warn-soft:#fff3e0;
+  --radius:14px; --shadow:0 1px 2px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15181b; --card:#1e2226; --ink:#e7e9ea; --muted:#9aa3ab; --line:#30363d;
+    --accent:#7fb7bb; --accent-soft:#22343a; --warn:#ffb46b; --warn-soft:#3a2a16;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15181b; --card:#1e2226; --ink:#e7e9ea; --muted:#9aa3ab; --line:#30363d;
+  --accent:#7fb7bb; --accent-soft:#22343a; --warn:#ffb46b; --warn-soft:#3a2a16;
+}
+[hidden]{display:none!important}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;overflow-x:hidden}
+a{color:var(--accent)}
+header.top{padding:20px 16px 8px;max-width:860px;margin:0 auto}
+header.top h1{font-size:1.45rem;line-height:1.3;margin:0 0 4px}
+header.top p{margin:0;color:var(--muted)}
+nav.tabs{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+nav.tabs .inner{display:flex;gap:6px;overflow-x:auto;padding:8px 16px;max-width:860px;margin:0 auto;scrollbar-width:none}
+nav.tabs .inner::-webkit-scrollbar{display:none}
+nav.tabs a{flex:0 0 auto;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-decoration:none;font-size:.92rem;cursor:pointer;white-space:nowrap}
+nav.tabs a[aria-current="page"]{background:var(--accent);border-color:var(--accent);color:#fff}
+main{max-width:860px;margin:0 auto;padding:12px 16px 48px}
+section[data-p]{display:block;padding-top:4px}
+section[data-p] > h2{font-size:1.2rem;margin:12px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:10px 0;box-shadow:var(--shadow)}
+.notice{background:var(--warn-soft);border-color:var(--warn);color:var(--ink)}
+.notice strong{color:var(--warn)}
+.muted{color:var(--muted)}
+.small{font-size:.88rem}
+ul.plain{padding-left:1.2em;margin:6px 0}
+.daycards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.daycard{display:block;text-decoration:none;color:inherit;cursor:pointer}
+.daycard .lab{display:inline-block;font-weight:700;color:var(--accent);margin-right:6px}
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{display:grid;grid-template-columns:64px 1fr;gap:10px;padding:10px 0;border-top:1px dashed var(--line)}
+.timeline li:first-child{border-top:0}
+.timeline .t{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:700}
+.timeline .n{font-weight:600}
+.tag{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px;vertical-align:1px}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.btnrow{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.btn{display:inline-block;padding:8px 14px;border-radius:10px;background:var(--accent);color:#fff;text-decoration:none;font-size:.92rem}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.pager{display:flex;justify-content:space-between;gap:8px;margin-top:18px}
+.pager a{cursor:pointer}
+.checks{list-style:none;padding:0;margin:0}
+.checks li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px dashed var(--line)}
+.checks li:first-child{border-top:0}
+.checks input{margin-top:5px;width:18px;height:18px;flex:0 0 auto}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;white-space:nowrap}
+footer{max-width:860px;margin:0 auto;padding:0 16px 32px;color:var(--muted);font-size:.85rem}
+@media print{nav.tabs,.pager,.btnrow{display:none!important} section[data-p]{display:block!important}}
+</style>
+</head>
+<body data-store="{{STORE_KEY}}">
+<header class="top">
+  <h1>{{TITLE}}</h1>
+  <p>{{SUBTITLE}}</p>
+</header>
+<nav class="tabs" aria-label="分页"><div class="inner">
+{{NAV}}
+</div></nav>
+<main>
+{{SECTIONS}}
+</main>
+<footer>{{FOOTER}}</footer>
+<script>
+(function(){
+  "use strict";
+  var secs = Array.prototype.slice.call(document.querySelectorAll("section[data-p]"));
+  if (!secs.length) return;
+  var byId = {}; secs.forEach(function(s){ byId[s.id] = s; });
+
+  // Internal #links -> buttons. The Artifact host intercepts <a href="#..."> clicks,
+  // so in-page navigation must not depend on the browser following the hash.
+  Array.prototype.forEach.call(document.querySelectorAll('a[href^="#"]'), function(a){
+    var id = a.getAttribute("href").slice(1);
+    if (byId[id]) {
+      a.setAttribute("data-go", id);
+      a.removeAttribute("href");
+      a.setAttribute("role", "button");
+      a.tabIndex = 0;
+    }
+  });
+  var tabs = Array.prototype.slice.call(document.querySelectorAll("nav.tabs [data-go]"));
+
+  function show(id, scroll){
+    if (!byId[id]) id = secs[0].id;
+    secs.forEach(function(s){ s.hidden = (s.id !== id); });
+    tabs.forEach(function(t){ t.setAttribute("aria-current", t.getAttribute("data-go") === id ? "page" : "false"); });
+    var cur = document.querySelector('nav.tabs [aria-current="page"]');
+    if (cur && cur.scrollIntoView) { try { cur.scrollIntoView({block:"nearest", inline:"center"}); } catch(e){} }
+    try { history.replaceState(null, "", "#" + id); } catch(e){}
+    if (scroll !== false) { try { window.scrollTo(0, 0); } catch(e){} }
+  }
+  function go(e){
+    var el = e.target.closest ? e.target.closest("[data-go]") : null;
+    if (!el) return;
+    e.preventDefault(); e.stopPropagation();
+    show(el.getAttribute("data-go"));
+  }
+  document.addEventListener("click", go, true);
+  document.addEventListener("keydown", function(e){
+    if (e.key === "Enter" || e.key === " ") go(e);
+  }, true);
+
+  // Checklists persist per viewer; wrapped because storage can be unavailable.
+  var store = document.body.getAttribute("data-store") || "routebook";
+  function load(){ try { return JSON.parse(localStorage.getItem(store) || "{}"); } catch(e){ return {}; } }
+  function save(v){ try { localStorage.setItem(store, JSON.stringify(v)); } catch(e){} }
+  var state = load();
+  Array.prototype.forEach.call(document.querySelectorAll("input[type=checkbox][data-key]"), function(cb){
+    var k = cb.getAttribute("data-key");
+    if (state[k]) cb.checked = true;
+    cb.addEventListener("change", function(){ state = load(); state[k] = cb.checked; save(state); });
+  });
+
+  var start = (location.hash || "").slice(1);
+  show(byId[start] ? start : secs[0].id, false);
+})();
+</script>
+</body>
+</html>
