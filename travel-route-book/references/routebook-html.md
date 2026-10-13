@@ -23,13 +23,18 @@
   "tickets": [{"when": "…", "platform": "…", "what": "…"}],
   "days": [{
     "id": "d1", "label": "D1", "date": "11/07 周六", "title": "…", "stay": "…", "summary": "…",
+    "iso_date": "2026-11-07", "weekday": "周六",   // 推算放号日、对照营业时间用（二选一也行，iso_date 优先）
     "stops": [{
       "time": "09:30", "name": "…", "type": "景点|餐饮|咖啡|交通|住宿|活动",
       "note": "为什么去/怎么安排", "address": "门牌", "hours": "营业时间（核对过的）",
       "transit": "从上一站怎么来、多久", "phone": "",
       "lng": 120.1, "lat": 30.2,          // 大陆 GCJ-02；境外 WGS-84；没有就省略
       "amap_id": "B0…", "place_id": "…",   // 有就填，地址簿链接更准
-      "status": "地图核实|只到片区|未定位|待核实|已移出"
+      "status": "地图核实|只到片区|未定位|待核实|已移出",
+      "hours_week": {"mon": [], "tue": [["09:00","17:00"]]},  // 结构化营业时间：[] = 当天休息；没写的天 = 未知；过午夜写 "26:00"
+      "booking": true,                     // 需要预约 → delegate.py 出预约卡
+      "booking_rule": {"channel": "…", "advance_days": 7, "release_time": "09:00",
+                       "closed_days": ["周一"], "last_entry": "16:00"}  // merge 写入，conflicts 用
     }],
     "rain_plan": "…", "backups": ["…"], "tips": ["…"]
   }],
@@ -37,6 +42,8 @@
 }
 ```
 脚本会检查：缺 id、重复 id、只填了 lng 或 lat 之一等，问题打印到 stderr。
+`tickets` 里由 `delegate.py merge` 生成的条目带 `"ref": "<卡号>"`，重跑时原地更新。手写条目不带 `ref`，合并时如果写的是同一个场馆，会被替换掉。
+发布前跑一次 `python3 scripts/delegate.py conflicts trip.json`，必须没有 ERROR（见 `references/delegation.md`）。
 
 ## 生成的页面包含
 - 顶部标题 + 吸顶标签栏：总览 / 抢票 / D1…Dn / 地图 / 地址 / 附录（空的部分自动省略）。
