@@ -15,6 +15,13 @@ from saved raw pages; this script does everything deterministic. See references/
   delegate.py conflicts trip.json [--json]         # opening hours / closed days vs. the schedule
 
 work/ layout:  tasks/<id>.json  raw/<id>/*  out/<id>.json  collect.jsonl  check.json
+
+Task identity (schema 2). A card's id is a hash of what decides *which pages get collected*
+(place name + address hint + city for a POI; venue + visit date for a ticket; candidate for
+xhs). Its fingerprint is a hash of *everything that decides the answer* (the id inputs plus
+official sources, taste filter, search queries, locale, schema version). Position in the
+itinerary is not part of either: reordering stops keeps results, changing the place makes a
+new task, and an output is only accepted if it echoes the fingerprint of the current card.
 """
 import argparse
 import datetime as dt
@@ -23,8 +30,8 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sys
+import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -37,6 +44,8 @@ WORKER = {"poi": "poi-checker", "ticket": "ticket-checker", "xhs": "xhs-grader"}
 NEEDS_HOURS = {"景点", "餐饮", "咖啡", "活动"}
 HHMM = re.compile(r"^([0-2]?\d):([0-5]\d)$")
 CLOSE_WARN_MIN = 45
+SCHEMA = 2          # bump when card inputs or the worker output contract change
+LOCALE = "zh-CN"    # language the sources are read in; part of every fingerprint
 
 
 # ---------- small helpers ----------
@@ -48,11 +57,33 @@ def read_json(path, default=None):
         return json.load(f)
 
 
-def write_json(path, data):
+def write_text(path, text):
+    """Write via a temp file + rename so a crash never leaves a half-written file."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def dump_json(data):
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+
+
+def write_json(path, data):
+    write_text(path, dump_json(data))
+
+
+def norm(s):
+    """Canonical text for hashing: NFKC (full-width = half-width), single spaces, trimmed."""
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(s or ""))).strip()
+
+
+def digest_of(obj, n):
+    blob = json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:n]
 
 
 def minutes(s):
@@ -114,28 +145,111 @@ def paths(work):
     return {k: os.path.join(work, k) for k in ("tasks", "raw", "out")}
 
 
-def load_cards(work):
+def load_cards(work, active_only=True):
     cards = {}
     for p in sorted(glob.glob(os.path.join(work, "tasks", "*.json"))):
-        c = read_json(p)
-        cards[c["id"]] = c
+        try:
+            c = read_json(p)
+            cid = c["id"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            sys.stderr.write(f"warning: unreadable task card skipped: {p}\n")
+            continue
+        if active_only and not c.get("active", True):
+            continue
+        cards[cid] = c
     return cards
 
 
-def append_jobs(work, jobs):
+# ---------- task identity ----------
+
+def poi_input(trip, stop):
+    """What a POI lookup depends on. After a merge the stop's address is the map's, so the hint
+    the lookup was made with is kept in stop.provenance and reused while the name is unchanged."""
+    prov = stop.get("provenance") or {}
+    hint = stop.get("address", "")
+    if prov.get("name") == stop.get("name") and "address_hint" in prov:
+        hint = prov["address_hint"]
+    return {"kind": "poi", "map": trip.get("map", "amap"), "city": norm(trip.get("city")),
+            "adcode": norm(trip.get("adcode")), "name": norm(stop.get("name")),
+            "address_hint": norm(hint), "locale": LOCALE}
+
+
+def ticket_key(trip, day, stop):
+    date = norm(day.get("iso_date"))
+    return {"kind": "ticket", "city": norm(trip.get("city")), "venue": norm(stop.get("name")),
+            "date": date, "weekday": "" if date else (day_key(day) or "")}
+
+
+def card_ids(kind, key, extra=None):
+    """(id, fingerprint) for a card. `key` picks the slot; `extra` are answer-only inputs."""
+    cid = {"poi": "p-", "ticket": "t-", "xhs": "x-"}[kind] + digest_of(key, 8)
+    return cid, digest_of({"schema": SCHEMA, "locale": LOCALE, "key": key, "extra": extra or {}}, 16)
+
+
+def refresh_fingerprint(card):
+    k = card["kind"]
+    extra = ({"sources": sorted(card.get("sources", []))} if k == "ticket" else
+             {"category": card.get("category", ""), "taste_filter": card.get("taste_filter", ""),
+              "queries": sorted(card.get("queries", []))} if k == "xhs" else None)
+    card["id"], card["fingerprint"] = card_ids(k, card["input"], extra)
+    return card
+
+
+def save_card(work, card):
+    """Write a card (and its raw/out paths) only when something changed."""
+    w = work.rstrip("/")
+    card.update(schema=SCHEMA, raw=f"{w}/raw/{card['id']}/", out=f"{w}/out/{card['id']}.json")
+    path = os.path.join(work, "tasks", card["id"] + ".json")
+    if read_json_safe(path) != card:
+        write_json(path, card)
+
+
+def read_json_safe(path):
+    try:
+        return read_json(path)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def trip_bindings(trip):
+    """Which stops each POI / ticket task serves right now: {card id: [(day, stop), ...]}."""
+    poi, ticket = {}, {}
+    for day in trip.get("days", []):
+        for s in day.get("stops", []):
+            if not isinstance(s, dict) or s.get("status") == "已移出" or not s.get("name"):
+                continue
+            poi.setdefault(card_ids("poi", poi_input(trip, s))[0], []).append((day, s))
+            if s.get("booking"):
+                ticket.setdefault(card_ids("ticket", ticket_key(trip, day, s))[0], []).append((day, s))
+    return poi, ticket
+
+
+def sync_jobs(work):
+    """collect.jsonl = jobs of live cards. Lines for retired cards are dropped; hand-added lines
+    for live cards are kept. Returns how many lines were added."""
     path = os.path.join(work, "collect.jsonl")
-    existing = set()
+    live = load_cards(work)
+    kept, seen = [], set()
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
-            existing = {line.strip() for line in f if line.strip()}
+            for line in f:
+                line = line.strip()
+                try:
+                    card = json.loads(line).get("card")
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+                if line and card in live and line not in seen:
+                    kept.append(line)
+                    seen.add(line)
     added = 0
-    with open(path, "a", encoding="utf-8") as f:
-        for j in jobs:
-            line = json.dumps(j, ensure_ascii=False, sort_keys=True)
-            if line not in existing:
-                f.write(line + "\n")
-                existing.add(line)
+    for cid in sorted(live):
+        for j in live[cid].get("jobs", []):
+            line = json.dumps(dict(j, card=cid), ensure_ascii=False, sort_keys=True)
+            if line not in seen:
+                kept.append(line)
+                seen.add(line)
                 added += 1
+    write_text(path, "".join(l + "\n" for l in kept))
     return added
 
 
@@ -147,64 +261,105 @@ def cmd_init(a):
     for d in p.values():
         os.makedirs(d, exist_ok=True)
     city, adcode, mapname = trip.get("city", ""), trip.get("adcode", ""), trip.get("map", "amap")
-    made, jobs, need_url = [], [], []
+    old = load_cards(a.work, active_only=False)
+    wanted, need_url, renamed = {}, [], []
     for day in trip.get("days", []):
         wk = day_key(day)
-        for i, s in enumerate(day.get("stops", [])):
+        for s in day.get("stops", []):
             if s.get("status") == "已移出" or not s.get("name"):
                 continue
+            prov = s.get("provenance") or {}
+            if prov.get("name") not in (None, s["name"]):
+                renamed.append((prov["name"], s["name"]))
+            visit = {"day": day.get("id"), "time": s.get("time", ""), "weekday": DAY_CN.get(wk, "")}
             placeholder = s.get("status") == "未定位" and not s.get("address")
-            stop = {"day": day.get("id"), "index": i, "name": s["name"], "type": s.get("type", ""),
-                    "time": s.get("time", ""), "weekday": DAY_CN.get(wk, ""),
-                    "address_hint": s.get("address", "")}
             # POI card: mainland only (abroad, the planner uses a places tool directly)
             done = (s.get("amap_id") or s.get("place_id")) and s.get("hours_week") is not None
             skip_transport = s.get("type") == "交通" and s.get("lng") is not None
             if mapname == "amap" and not placeholder and not skip_transport and (a.all or not done):
-                cid = f"p-{day.get('id')}-{i + 1}"
-                card = {"id": cid, "kind": "poi", "map": mapname, "city": city, "stop": stop,
-                        "raw": f"{a.work.rstrip('/')}/raw/{cid}/", "out": f"{a.work.rstrip('/')}/out/{cid}.json"}
-                write_json(os.path.join(p["tasks"], cid + ".json"), card)
-                made.append(cid)
-                kw = search_keyword(city, s["name"], s.get("address"))
-                jobs.append({"job": "amap_poi", "card": cid, "keyword": kw, "adcode": str(adcode)})
+                inp = poi_input(trip, s)
+                cid, _ = card_ids("poi", inp)
+                card = wanted.get(cid)
+                if card is None:     # the same place on two days is one task with two visits
+                    kw = search_keyword(city, s["name"], inp["address_hint"])
+                    card = wanted[cid] = refresh_fingerprint({
+                        "kind": "poi", "input": inp, "map": mapname, "city": city,
+                        "stop": {"name": s["name"], "type": s.get("type", ""),
+                                 "address_hint": inp["address_hint"], "visits": []},
+                        "jobs": [{"job": "amap_poi", "keyword": kw, "adcode": str(adcode)}]})
+                card["stop"]["visits"].append(visit)
             # Ticket card: stops marked booking: true
-            if s.get("booking") and (a.all or not s.get("booking_rule")):
-                cid = f"t-{day.get('id')}-{i + 1}"
-                card = {"id": cid, "kind": "ticket", "venue": s["name"],
-                        "visit": {"day": day.get("id"), "date": day.get("iso_date", ""),
-                                  "weekday": DAY_CN.get(wk, ""), "time": s.get("time", "")},
-                        "raw": f"{a.work.rstrip('/')}/raw/{cid}/", "out": f"{a.work.rstrip('/')}/out/{cid}.json"}
-                write_json(os.path.join(p["tasks"], cid + ".json"), card)
-                made.append(cid)
-                need_url.append(cid)
-    added = append_jobs(a.work, jobs)
+            key = ticket_key(trip, day, s)
+            cid, _ = card_ids("ticket", key)
+            # A rule filled by another task (the visit date changed since) is not "done".
+            ruled = s.get("booking_rule") and s.get("booking_ref", cid) == cid
+            if s.get("booking") and (a.all or not ruled):
+                if cid not in wanted:
+                    prev = old.get(cid) or {}
+                    wanted[cid] = refresh_fingerprint({
+                        "kind": "ticket", "input": key, "venue": s["name"],
+                        "visit": dict(visit, date=day.get("iso_date", "")),
+                        "sources": prev.get("sources", []),     # official URLs survive a re-init
+                        "jobs": prev.get("jobs", [])})
+                    if not wanted[cid]["sources"]:
+                        need_url.append(cid)
+    for cid, card in wanted.items():
+        save_card(a.work, card)
+    # Cards for places that left the itinerary are retired, not deleted: their raw/out stay on
+    # disk and come back into use if the place returns unchanged.
+    retired = []
+    for cid, card in old.items():
+        if card.get("kind") in ("poi", "ticket") and cid not in wanted and card.get("active", True):
+            card["active"] = False
+            write_json(os.path.join(p["tasks"], cid + ".json"), card)
+            retired.append(cid)
+    added = sync_jobs(a.work)
+    made = sorted(wanted)
     print(f"cards: {len(made)}  ({', '.join(made) or '-'})")
+    if retired:
+        print(f"retired (no longer in trip.json, files kept): {', '.join(sorted(retired))}")
     print(f"collect jobs added: {added}  → {a.work}/collect.jsonl")
     if mapname != "amap":
         print("map=google: no POI cards; look places up with the places tool and fill trip.json directly.")
+    for was, now in renamed:
+        print(f"! {now}: was verified as「{was}」. Its address/hours/coordinates in trip.json may "
+              f"belong to the old place — clear them or re-check.")
     for cid in need_url:
-        print(f"needs official URL: {cid}  → delegate.py add-source {a.work} {cid} <url>")
+        print(f"needs official URL: {cid} ({wanted[cid]['venue']})  → delegate.py add-source {a.work} {cid} <url>")
 
 
 def cmd_add_xhs(a):
     name = a.name
-    cid = "x-" + hashlib.sha1(name.encode()).hexdigest()[:6]
-    card = {"id": cid, "kind": "xhs", "candidate": name, "category": a.category,
-            "taste_filter": a.taste or "", "raw": f"{a.work.rstrip('/')}/raw/{cid}/",
-            "out": f"{a.work.rstrip('/')}/out/{cid}.json"}
-    write_json(os.path.join(a.work, "tasks", cid + ".json"), card)
-    queries = a.query or [f"{name} 避雷", f"{name} 推荐"]
-    n = append_jobs(a.work, [{"job": "xhs_search", "card": cid, "query": q, "max_notes": a.max_notes}
-                             for q in queries])
-    print(f"{cid}  {name}  ({n} search jobs)")
+    # Neutral queries first (references/xhs-screening.md): 「避雷」 is not a search keyword.
+    queries = a.query or [name, f"{name} 人均"]
+    key = {"kind": "xhs", "candidate": norm(name)}
+    prev = load_cards(a.work, active_only=False).get(card_ids("xhs", key)[0]) or {}
+    queries = sorted(set(prev.get("queries", [])) | set(queries))
+    card = refresh_fingerprint({
+        "kind": "xhs", "input": key, "candidate": name, "category": a.category,
+        "taste_filter": a.taste or "", "queries": queries,
+        "jobs": [{"job": "xhs_search", "query": q, "max_notes": a.max_notes} for q in queries]})
+    stale = prev.get("fingerprint") not in (None, card["fingerprint"])
+    save_card(a.work, card)
+    n = sync_jobs(a.work)
+    print(f"{card['id']}  {name}  ({n} search jobs)"
+          + ("  — inputs changed: the earlier result no longer counts, grade again" if stale else ""))
 
 
 def cmd_add_source(a):
-    if not os.path.exists(os.path.join(a.work, "tasks", a.card + ".json")):
+    card = load_cards(a.work, active_only=False).get(a.card)
+    if not card:
         sys.exit(f"no card {a.card}")
-    n = append_jobs(a.work, [{"job": "page", "card": a.card, "url": a.url, "name": a.name}])
-    print(f"{a.card}: {'added' if n else 'already queued'} {a.url}")
+    job = {"job": "page", "url": a.url, "name": a.name}
+    known = job in card.get("jobs", [])
+    if not known:
+        card.setdefault("jobs", []).append(job)
+        if card["kind"] == "ticket":   # a new official source changes what the answer rests on
+            card["sources"] = sorted(set(card.get("sources", [])) | {a.url})
+            refresh_fingerprint(card)
+        save_card(a.work, card)
+    sync_jobs(a.work)
+    print(f"{a.card}: {'already queued' if known else 'added'} {a.url}")
 
 
 def cmd_capture_amap(a):
@@ -279,8 +434,14 @@ def check_hours_week(hw, probs):
 
 def validate_out(card, out, texts):
     probs = []
+    if card.get("schema") != SCHEMA:
+        return [f"task card is from an older version (schema {card.get('schema', 1)}): re-run init / add-xhs"]
     if out.get("id") != card["id"]:
         probs.append(f"id {out.get('id')!r} != card {card['id']!r}")
+    if out.get("fingerprint") != card["fingerprint"]:
+        probs.append(f"stale or unbound output: fingerprint {out.get('fingerprint')!r} != card "
+                     f"{card['fingerprint']!r} (the task's inputs changed after this was written, "
+                     f"or the worker did not copy it)")
     kind = card["kind"]
     if out.get("kind") != kind:
         probs.append(f"kind {out.get('kind')!r} != {kind!r}")
@@ -486,8 +647,57 @@ def release_when(visit_date, rule):
     return f"出发前 {adv} 天 {rt or '时间待核实'} 放号"
 
 
+def now():
+    """Current time; DELEGATE_NOW (ISO 8601) pins it for tests and reproducible runs."""
+    v = os.environ.get("DELEGATE_NOW")
+    return dt.datetime.fromisoformat(v) if v else dt.datetime.now().astimezone()
+
+
+def apply_poi(stop, card, o, add_todo):
+    """Fold one checked POI result into one stop. Returns True when a match was applied."""
+    res, conf = o["result"], o["confidence"]
+    if res == "found":
+        m = o["match"]
+        for k in ("address", "phone", "amap_id", "place_id"):
+            if m.get(k):
+                stop[k] = m[k]
+        if m.get("hours"):
+            stop["hours"] = m["hours"] + (f"（{m['hours_note']}）" if m.get("hours_note") else "")
+        if m.get("hours_week") is not None:
+            stop["hours_week"] = m["hours_week"]
+        if m.get("lng") is not None:
+            stop["lng"], stop["lat"] = m["lng"], m["lat"]
+        stop["status"] = ("地图核实" if conf != "low" and m.get("lng") is not None
+                          else "只到片区" if conf != "low" else "待核实")
+        # Where the facts came from, and the hint the lookup used (address is now the map's).
+        stop["provenance"] = {"task": card["id"], "fingerprint": card["fingerprint"],
+                              "name": stop["name"], "address_hint": card["input"]["address_hint"],
+                              "confidence": conf}
+        if m.get("closed_notice"):
+            add_todo(f"{stop['name']}：地图提示「{m['closed_notice']}」，决定是否换掉")
+        if conf == "low":
+            add_todo(f"{stop['name']}：地图信息可信度低，人工确认")
+        return True
+    if res == "not_found":
+        stop["status"] = "待核实"
+        add_todo(f"{stop['name']}：地图搜不到，可能已关店，换一家或人工确认")
+    elif res == "ambiguous":
+        stop["status"] = "待核实"
+        names = " / ".join(c.get("name", "") for c in o.get("candidates", []))
+        add_todo(f"{stop['name']}：地图上有多个同名点（{names}），确认是哪一家")
+    else:
+        add_todo(f"{stop['name']}：原文不足，地图信息没核到")
+    return False
+
+
+RULE_KEYS = ("required", "channel", "advance_days", "release_time")
+
+
 def cmd_merge(a):
-    trip = read_json(a.trip)
+    with open(a.trip, encoding="utf-8") as f:
+        before_text = f.read()
+    trip = json.loads(before_text)
+    before = json.loads(before_text)
     report = run_check(a.work, quiet=True)
     cards = load_cards(a.work)
     app = trip.setdefault("appendix", {})
@@ -499,69 +709,60 @@ def cmd_merge(a):
         if t not in todo:
             todo.append(t)
 
-    days = {d.get("id"): d for d in trip.get("days", [])}
-    for cid, card in cards.items():
+    poi_stops, ticket_stops = trip_bindings(trip)
+    # Auto-generated ticket lines belong to a task; drop those whose task no longer matches
+    # the itinerary (venue removed, or its date changed and a new task replaced it).
+    for t in [t for t in tickets if t.get("ref") and t["ref"] not in ticket_stops]:
+        tickets.remove(t)
+        log.append(f"removed outdated ticket line {t['ref']}: {t.get('what', '')}")
+    by_poi, by_venue = {}, {}      # amap id -> [(stop name, matched name)], venue -> [(card, rule)]
+    for cid in sorted(cards):      # sorted: the result never depends on creation order
+        card = cards[cid]
         if report.get(cid, {}).get("status") != "ok":
             continue
         o = read_json(os.path.join(a.work, "out", cid + ".json"))
         if card["kind"] == "poi":
-            st = card["stop"]
-            stop = days[st["day"]]["stops"][st["index"]]
-            if stop.get("name") != st["name"]:
-                log.append(f"skip {cid}: stop changed since the card was made")
+            targets = poi_stops.get(cid, [])
+            if not targets:
+                log.append(f"skip {cid} ({card['stop']['name']}): not in trip.json any more — re-run init")
                 continue
-            res, conf = o["result"], o["confidence"]
-            if res == "found":
-                m = o["match"]
-                for k in ("address", "phone", "amap_id", "place_id"):
-                    if m.get(k):
-                        stop[k] = m[k]
-                if m.get("hours"):
-                    stop["hours"] = m["hours"] + (f"（{m['hours_note']}）" if m.get("hours_note") else "")
-                if m.get("hours_week") is not None:
-                    stop["hours_week"] = m["hours_week"]
-                if m.get("lng") is not None:
-                    stop["lng"], stop["lat"] = m["lng"], m["lat"]
-                stop["status"] = ("地图核实" if conf != "low" and m.get("lng") is not None
-                                  else "只到片区" if conf != "low" else "待核实")
-                if m.get("closed_notice"):
-                    add_todo(f"{stop['name']}：地图提示「{m['closed_notice']}」，决定是否换掉")
-                if conf == "low":
-                    add_todo(f"{stop['name']}：地图信息可信度低，人工确认")
+            applied = [apply_poi(stop, card, o, add_todo) for _day, stop in targets]
+            if any(applied):
                 n_poi += 1
-            elif res == "not_found":
-                stop["status"] = "待核实"
-                add_todo(f"{stop['name']}：地图搜不到，可能已关店，换一家或人工确认")
-            elif res == "ambiguous":
-                stop["status"] = "待核实"
-                names = " / ".join(c.get("name", "") for c in o.get("candidates", []))
-                add_todo(f"{stop['name']}：地图上有多个同名点（{names}），确认是哪一家")
-            else:
-                add_todo(f"{stop['name']}：原文不足，地图信息没核到")
+                pid = o["match"].get("amap_id") or o["match"].get("place_id")
+                if pid:
+                    by_poi.setdefault(pid, []).append((card["stop"]["name"], o["match"].get("name", "")))
         elif card["kind"] == "ticket":
-            v = card["visit"]
-            day = days.get(v["day"])
-            stop = next((s for s in day["stops"] if s.get("name") == card["venue"]), None) if day else None
+            targets = ticket_stops.get(cid, [])
+            if not targets:
+                log.append(f"skip {cid} ({card['venue']}): no such booking in trip.json any more — re-run init")
+                continue
             if o["result"] != "found":
                 add_todo(f"{card['venue']}：没找到官方预约规则")
                 continue
-            r = o["rule"]
-            if stop is not None:
+            v, r = card["visit"], o["rule"]
+            day = targets[0][0]
+            for _day, stop in targets:
                 stop["booking_rule"] = r
+                stop["booking_ref"] = cid
             what = f"{day.get('label', v['day'])} {v.get('time', '')} {card['venue']}".strip()
             if r.get("real_name"):
                 what += "（实名）"
             entry = {"ref": cid, "when": release_when(v.get("date"), r),
                      "platform": r.get("channel") or "渠道待核实", "what": "预约 " + what}
             venue_key = no_parens(card["venue"])
-            for i, t in enumerate(tickets):
-                # same card, or a hand-written entry for the same venue (no ref yet)
-                hand = t.get("what", "") + t.get("platform", "")
-                if t.get("ref") == cid or (not t.get("ref") and venue_key and venue_key in hand):
-                    tickets[i] = entry
-                    break
+            mine = [i for i, t in enumerate(tickets)
+                    if t.get("ref") == cid or (not t.get("ref") and t.get("venue") == card["venue"])]
+            if mine:
+                tickets[mine[0]] = entry
             else:
                 tickets.append(entry)
+            # A hand-written line that merely mentions the venue may be about another one
+            # (「苏州博物馆西馆」 vs 「苏州博物馆」): never overwrite it, ask instead.
+            for t in tickets:
+                if not t.get("ref") and venue_key and venue_key in t.get("what", "") + t.get("platform", ""):
+                    add_todo(f"抢票清单里手写的「{t.get('what', '')}」可能和自动生成的「{card['venue']}」"
+                             f"是同一件事，确认后删掉多余的一条")
             if o.get("unverified"):
                 add_todo(f"{card['venue']} 预约规则待核实：{', '.join(o['unverified'])}")
             src = app.setdefault("sources", [])
@@ -569,22 +770,44 @@ def cmd_merge(a):
                 if s.get("url") and not any(x.get("url") == s["url"] for x in src):
                     src.append({"title": f"{card['venue']} 官方预约说明", "url": s["url"],
                                 "note": f"{o.get('rule_year', '?')} 年规则"})
+            by_venue.setdefault(norm(card["venue"]), []).append((card, r))
             n_tix += 1
+    # Cross-task consistency: the same map point under two names, or one venue with two rules.
+    for pid in sorted(by_poi):
+        names = sorted({n for n, _ in by_poi[pid]})
+        if len(names) > 1:
+            add_todo(f"{' 和 '.join(names)} 核对到了同一个地图点（{by_poi[pid][0][1] or pid}），"
+                     f"至少有一个认错了，人工确认")
+            for _day, stop in (x for c in cards.values() if c["kind"] == "poi" and c["stop"]["name"] in names
+                               for x in poi_stops.get(c["id"], [])):
+                stop["status"] = "待核实"
+    for venue in sorted(by_venue):
+        rules = by_venue[venue]
+        diff = [k for k in RULE_KEYS if len({json.dumps(r.get(k), ensure_ascii=False) for _, r in rules}) > 1]
+        if diff:
+            dates = "、".join(sorted(c["visit"].get("date") or c["visit"].get("weekday", "") for c, _ in rules))
+            add_todo(f"{rules[0][0]['venue']}：不同日期（{dates}）核到的预约规则不一致（{', '.join(diff)}），"
+                     f"以官方最新说明为准，人工确认")
     # xhs results never change trip.json: the planner reads `digest` and decides.
     summary = f"合并核对结果：{n_poi} 个地点、{n_tix} 条预约规则"
-    print(summary)
+    changed = trip != before
+    print(summary + ("" if changed else "（trip.json 无变化）"))
     for line in log:
         print("  " + line)
-    if not a.write:
-        print("(dry run — add --write to save; a .bak copy is kept)")
+    if not changed:
         return
-    shutil.copyfile(a.trip, a.trip + ".bak")
-    entry = f"{dt.date.today().isoformat()}（自动）：{summary}"
-    changelog = app.setdefault("changelog", [])
-    if not changelog or changelog[-1] != entry:
-        changelog.append(entry)
+    if not a.write:
+        print("(dry run — add --write to save; backups are kept)")
+        return
+    # Idempotent by construction: a merge that changes nothing writes nothing, so the changelog
+    # only grows when facts did. Every distinct pre-merge version is kept under work/backups/.
+    app.setdefault("changelog", []).append(f"{now().date().isoformat()}（自动）：{summary}")
+    keep = os.path.join(a.work, "backups", f"trip-{hashlib.sha256(before_text.encode('utf-8')).hexdigest()[:12]}.json")
+    if not os.path.exists(keep):
+        write_text(keep, before_text)
+    write_text(a.trip + ".bak", before_text)
     write_json(a.trip, trip)
-    print(f"saved {a.trip}  (backup {a.trip}.bak)")
+    print(f"saved {a.trip}  (previous version: {a.trip}.bak and {keep})")
 
 
 # ---------- conflicts ----------
