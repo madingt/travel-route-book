@@ -41,7 +41,7 @@ travel-route-book/
     ├── test_routebook.cjs        发布前检查（Playwright）
     ├── map_links.py              每日多点地图链接（高德 ≤10 点 / 谷歌 ≤9 途经点，自动拆分）
     ├── amap_lookup.py            高德官方 Web 服务 API 查地点（需 AMAP_KEY）
-    ├── delegate.py               分工流水线：出卡、校验引文、合并、营业时间冲突
+    ├── delegate.py               分工流水线：出卡、校验结果、任务状态与断点续做、合并、冲突检查
     ├── trip_to_xlsx.py           trip.json → 地点表 + 每日统计（公式）
     └── trip_lib.py               公共函数
 ```
@@ -57,6 +57,32 @@ python3 scripts/delegate.py conflicts assets/trip.example.json  # 营业时间/�
 python3 scripts/delegate.py init assets/trip.example.json /tmp/work   # 看看会生成哪些任务卡
 python3 scripts/trip_to_xlsx.py assets/trip.example.json /tmp/places.xlsx   # 需要 openpyxl
 ```
+
+## 分工流水线一览
+```bash
+D=travel-route-book/scripts/delegate.py
+python3 $D init trip.json work/          # 出任务卡（改了 trip.json 就重跑，随时可以）
+python3 $D pending work/                 # 现在该做什么：采集 / 派给谁 / 哪些要人处理
+python3 $D claim work/ <卡号…>           # 派出去之前登记，避免重复派
+python3 $D check work/                   # 校验核对员交回的结果
+python3 $D status work/                  # 每张卡的状态；断了从这里接着做
+python3 $D digest work/                  # 一张卡一行的摘要，规划者只读这个
+python3 $D merge trip.json work/ --write # 合并通过校验的结果（重复执行不会改任何东西）
+python3 $D conflicts trip.json           # 营业时间、闭馆日、日期、时区对照
+```
+卡号按内容生成：调整行程顺序不会让结果作废，换了地点也不会把旧结果套到新地点上。细节见 `travel-route-book/references/delegation.md`。
+
+## 测试
+不需要联网，不需要任何账号，只用 Python 自带的库：
+
+```bash
+python3 -m unittest discover -s tests -v   # 59 个回归测试，约 15 秒
+python3 bench/replay.py                    # 用录下来的真实 agent 输出重新打分
+```
+
+- `tests/`：在临时目录里跑真实的 `delegate.py` 命令。覆盖换地点后旧结果不被复用、编造或引错的引文被拒、重复合并不改文件、失败重试与断点恢复、日期与时区矛盾等。
+- `bench/`：固定样例上「一个模型全做」与「多个便宜模型并行」的实测对比，结论和局限写在 `bench/RESULTS.md`。
+- `docs/audit-issue-2.md`：这套测试最初抓到的缺陷、根因和修复前后的输出。
 
 ## 安装
 
