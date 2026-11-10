@@ -386,125 +386,322 @@ def cmd_capture_amap(a):
         print(f"{cid}: {len(rows)} results")
 
 
-# ---------- check ----------
+# ---------- check: deterministic validators ----------
+#
+# What these checks can and cannot establish. They are plain code, no model involved:
+#   error  — the output breaks the contract (wrong shape, stale fingerprint, a quote that is
+#            not in the cited file, a number that is not in the saved page). Worker retries.
+#   review — the output is well-formed and its quotes are real, but a value is not visibly
+#            carried by the quote cited for it. A person or the planner must look.
+# A verbatim quote proves the sentence is in the saved page. It does not prove the page is
+# right, current, official, or about this place, nor that the worker read it correctly.
+# Which shop matches, stance, marketing or not, confidence: those stay model judgments.
+
+MIN_QUOTE, MAX_QUOTE = 8, 200     # characters after removing whitespace
+CN_NUM = "零一二三四五六七八九十"
+
+TYPES = {
+    "str": lambda v: isinstance(v, str),
+    "int": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "num": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+    "bool": lambda v: isinstance(v, bool),
+    "obj": lambda v: isinstance(v, dict),
+    "year": lambda v: isinstance(v, (str, int)) and not isinstance(v, bool),
+    "list:str": lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
+    "list:obj": lambda v: isinstance(v, list) and all(isinstance(x, dict) for x in v),
+}
+EVIDENCE = {"file": "str", "field": "str", "quote": "str"}
+COMMON = {"id": "str", "kind": "str", "fingerprint": "str", "result": "str", "confidence": "str",
+          "flags": "list:str?"}
+SHAPES = {
+    "poi": dict(COMMON, match="obj?", candidates="list:obj?", evidence="list:obj?"),
+    "poi.match": {"name": "str", "amap_id": "str?", "place_id": "str?", "address": "str?", "lng": "num?",
+                  "lat": "num?", "phone": "str?", "nearest_metro": "str?", "hours": "str?",
+                  "hours_note": "str?", "hours_week": "obj?", "closed_notice": "str?"},
+    "ticket": dict(COMMON, rule="obj?", rule_year="year?", unverified="list:str?", sources="list:obj?",
+                   evidence="list:obj?"),
+    "ticket.rule": {"required": "bool?", "channel": "str?", "advance_days": "int?", "release_time": "str?",
+                    "same_day": "bool?", "closed_days": "list:str?", "last_entry": "str?",
+                    "eligibility": "str?", "price": "str?", "real_name": "bool?"},
+    "xhs": dict(COMMON, candidate="str?", notes="list:obj", independent_positive="int",
+                red_flags="list:obj?", taste_filter_hits="list:obj?", planner_note="str?"),
+    "xhs.note": {"file": "str", "author": "str?", "is_marketing": "bool", "marketing_hits": "list:str?",
+                 "stance": "str?", "real_signals": "list:obj?"},
+}
+
+
+class Problems(list):
+    def add(self, code, msg, level="error"):
+        self.append({"code": code, "level": level, "msg": msg})
+
+
+def shape(obj, spec, where, P):
+    """Type-check obj against {key: type}; a trailing ? allows null / absent."""
+    if not isinstance(obj, dict):
+        P.add("SCHEMA", f"{where} must be an object")
+        return False
+    ok = True
+    for key, t in spec.items():
+        v = obj.get(key)
+        if v is None:
+            if not t.endswith("?"):
+                P.add("SCHEMA", f"{where}.{key} is missing")
+                ok = False
+        elif not TYPES[t.rstrip("?")](v):
+            P.add("SCHEMA", f"{where}.{key} must be {t.rstrip('?')}")
+            ok = False
+    return ok
+
 
 def raw_texts(card, work):
     d = os.path.join(work, "raw", card["id"])
     out = {}
-    for p in glob.glob(os.path.join(d, "**", "*"), recursive=True):
+    for p in sorted(glob.glob(os.path.join(d, "**", "*"), recursive=True)):
         if os.path.isfile(p):
             with open(p, encoding="utf-8", errors="replace") as f:
                 out[os.path.relpath(p, d)] = f.read()
     return out
 
 
-def check_quotes(items, texts, where, probs):
-    for ev in items or []:
-        q, f = squash(ev.get("quote")), ev.get("file", "")
-        if not q:
-            probs.append(f"{where}: empty quote")
+def find_raw(texts, name):
+    """The raw file a citation points at: exact relative path, or an unambiguous basename."""
+    if not isinstance(name, str) or not name:
+        return None
+    if name in texts:
+        return name
+    hits = [k for k in texts if os.path.basename(k) == os.path.basename(name)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def flat(s):
+    """Comparison form: NFKC (： → :, full-width digits → ASCII) with all whitespace removed."""
+    return squash(unicodedata.normalize("NFKC", str(s or "")))
+
+
+def check_quotes(items, texts, where, P, default_file=None):
+    """Each item cites a file that exists and quotes a non-trivial passage found in that file."""
+    good = []
+    for n, ev in enumerate(items or []):
+        w = f"{where}[{n}]"
+        if not isinstance(ev, dict) or not isinstance(ev.get("quote"), str):
+            P.add("SCHEMA", f"{w} must be an object with a string quote")
             continue
-        src = texts.get(f) or texts.get(os.path.basename(f))
-        pool = [src] if src is not None else list(texts.values())
-        if not any(q in squash(t) for t in pool):
-            probs.append(f"{where}: quote not found verbatim in {f or 'raw'}: {ev.get('quote')[:30]}…")
+        q, f = flat(ev["quote"]), ev.get("file") or default_file
+        key = find_raw(texts, f)
+        if not q:
+            P.add("EMPTY_QUOTE", f"{w}: empty quote")
+        elif len(q) < MIN_QUOTE:
+            P.add("QUOTE_TOO_SHORT", f"{w}: quote「{ev['quote']}」is under {MIN_QUOTE} characters and proves nothing")
+        elif len(q) > MAX_QUOTE:
+            P.add("QUOTE_TOO_LONG", f"{w}: quote is over {MAX_QUOTE} characters; cite the sentence, not the page")
+        elif key is None:
+            P.add("CITED_FILE_MISSING", f"{w}: cited file {f!r} is not in raw/ (have: {', '.join(texts) or 'nothing'})")
+        elif q not in flat(texts[key]):
+            P.add("QUOTE_NOT_FOUND", f"{w}: quote not found verbatim in {key}: {ev['quote'][:30]}…")
+        else:
+            good.append(ev)
+    return good
 
 
-def check_hours_week(hw, probs):
+def quoted(evidence, *fields):
+    """All verified quote text cited for the given fields, in comparison form."""
+    return "".join(flat(e["quote"]) + "\n" for e in evidence if e.get("field") in fields)
+
+
+def cn_number(n):
+    if 0 <= n <= 10:
+        return CN_NUM[n]
+    if n < 20:
+        return "十" + CN_NUM[n - 10]
+    if n < 100:
+        return CN_NUM[n // 10] + "十" + (CN_NUM[n % 10] if n % 10 else "")
+    return str(n)
+
+
+def says_number(text, n):
+    return bool(re.search(rf"(?<!\d){n}(?!\d)", text)) or cn_number(n) in text or (n == 2 and "两" in text)
+
+
+def says_time(text, value):
+    """Does text state this clock time in any usual spelling? 17:00 = 17:00 / 17点 / 下午5点 / 5:00pm."""
+    m = minutes(value)
+    if m is None:
+        return False
+    h, mi = divmod(m, 60)
+    if mi == 0 and h in (0, 24) and re.search(r"24小时|全天|通宵", text):
+        return True
+    hours = {h % 24} | ({h} if h < 24 else set()) | ({24} if h % 24 == 0 else set())
+    for hh in hours:
+        if re.search(rf"(?<!\d)0?{hh}[:.]{mi:02d}(?!\d)", text):
+            return True
+        tail = "" if mi == 0 else "半" if mi == 30 else f"{mi}分?"
+        spoken = [str(hh), cn_number(hh)] + ([str(hh - 12), cn_number(hh - 12)] if 12 < hh < 24 else [])
+        if any(re.search(rf"(?<!\d){x}[点时]{tail}" + ("(?![0-9半一二三四五六七八九十])" if mi == 0 else ""), text)
+               for x in spoken):
+            return True
+        if 12 < hh < 24 and re.search(rf"(?:下午|晚上?|pm)\s*0?{hh - 12}[:.]{mi:02d}|(?<!\d)0?{hh - 12}[:.]{mi:02d}\s*pm",
+                                      text, re.I):
+            return True
+    return False
+
+
+def check_hours_week(hw, P):
     if hw is None:
-        return
-    if not isinstance(hw, dict):
-        probs.append("hours_week must be an object")
         return
     for k, spans in hw.items():
         if k not in DAYS:
-            probs.append(f"hours_week: bad key {k}")
+            P.add("BAD_HOURS", f"hours_week: bad key {k}")
             continue
         if not isinstance(spans, list):
-            probs.append(f"hours_week.{k} must be a list")
+            P.add("BAD_HOURS", f"hours_week.{k} must be a list")
             continue
         for sp in spans:
             if not (isinstance(sp, list) and len(sp) == 2):
-                probs.append(f"hours_week.{k}: span must be [open, close]")
+                P.add("BAD_HOURS", f"hours_week.{k}: span must be [open, close]")
                 continue
             o, c = minutes(sp[0]), minutes(sp[1])
             if o is None or c is None or not (0 <= o < c <= 30 * 60):
-                probs.append(f"hours_week.{k}: bad span {sp}")
+                P.add("BAD_HOURS", f"hours_week.{k}: bad span {sp}")
+
+
+def validate_poi(card, out, texts, P):
+    if out["result"] not in ("found", "not_found", "ambiguous", "insufficient"):
+        P.add("SCHEMA", "result must be found|not_found|ambiguous|insufficient")
+    good = check_quotes(out.get("evidence"), texts, "evidence", P)
+    m = out.get("match")
+    if out["result"] == "ambiguous" and not out.get("candidates"):
+        P.add("SCHEMA", "ambiguous but no candidates")
+    if out["result"] != "found":
+        if m not in (None, {}):
+            P.add("SCHEMA", "match must be null unless result is found")
+        return
+    if not shape(m, SHAPES["poi.match"], "match", P):
+        return
+    check_hours_week(m.get("hours_week"), P)
+    everything = flat("\n".join(texts.values()))
+    if not out.get("evidence"):
+        P.add("NO_EVIDENCE", "found, but not a single piece of evidence is cited")
+    # Literal copies: these must be character-for-character in the saved pages.
+    name = flat(no_parens(m["name"]))
+    if not name or name not in everything:
+        P.add("VALUE_NOT_IN_RAW", f"match.name「{m['name']}」does not appear in the saved pages")
+    for k in ("amap_id", "place_id", "phone"):
+        if m.get(k) and flat(m[k]) not in everything:
+            P.add("VALUE_NOT_IN_RAW", f"match.{k} {m[k]!r} does not appear in the saved pages")
+    lng, lat = m.get("lng"), m.get("lat")
+    if (lng is None) != (lat is None):
+        P.add("BAD_COORDS", "only one of lng/lat")
+    elif lng is not None:
+        if not (73 <= lng <= 136 and 3 <= lat <= 54):
+            P.add("BAD_COORDS", f"lng/lat {lng},{lat} outside mainland China")
+        def numbers(t):
+            return {float(x) for x in re.findall(r"\d+\.\d+", flat(t))}
+        if not any({float(lng), float(lat)} <= numbers(t) for t in texts.values()):
+            P.add("VALUE_NOT_IN_RAW", f"lng/lat {lng},{lat} are not in any saved page; copy the numbers, do not estimate")
+    # Every free-text field needs a citation; the citation should visibly carry the value.
+    for field, labels in (("address", ("address",)), ("hours", ("hours", "hours_week")),
+                          ("hours_week", ("hours", "hours_week")), ("closed_notice", ("closed_notice",))):
+        if m.get(field) and not any(e.get("field") in labels for e in out.get("evidence") or []):
+            P.add("NO_EVIDENCE", f"match.{field} given without {labels[0]} evidence")
+    if m.get("address") and flat(m["address"])[-6:] not in quoted(good, "address"):
+        P.add("VALUE_NOT_IN_QUOTE", f"address「{m['address']}」is not what the address quote says", "review")
+    hours_text = quoted(good, "hours", "hours_week")
+    times = sorted({t for spans in (m.get("hours_week") or {}).values() if isinstance(spans, list)
+                    for sp in spans if isinstance(sp, list) for t in sp if isinstance(t, str)})
+    missing = [t for t in times if not says_time(hours_text, t)]
+    if hours_text and missing:
+        P.add("VALUE_NOT_IN_QUOTE", f"hours_week times {', '.join(missing)} are not in the hours quotes", "review")
+
+
+def validate_ticket(card, out, texts, P):
+    if out["result"] not in ("found", "insufficient"):
+        P.add("SCHEMA", "result must be found|insufficient")
+    good = check_quotes(out.get("evidence"), texts, "evidence", P)
+    for n, src in enumerate(out.get("sources") or []):
+        key = find_raw(texts, src.get("file"))
+        if key is None:
+            P.add("CITED_FILE_MISSING", f"sources[{n}]: file {src.get('file')!r} is not in raw/")
+        elif not isinstance(src.get("url"), str) or flat(src["url"]) not in flat(texts[key]):
+            P.add("VALUE_NOT_IN_RAW", f"sources[{n}]: url {src.get('url')!r} is not the URL recorded in {key}")
+    r = out.get("rule")
+    if out["result"] != "found":
+        return
+    if not shape(r, SHAPES["ticket.rule"], "rule", P):
+        return
+    for f in ("release_time", "last_entry"):
+        if r.get(f) not in (None, "") and minutes(r[f]) is None:
+            P.add("SCHEMA", f"rule.{f} must be HH:MM")
+    filled = [k for k, v in r.items() if v not in (None, "", [])]
+    cited = {e.get("field") for e in out.get("evidence") or [] if isinstance(e, dict)}
+    if [k for k in filled if k not in cited]:
+        P.add("NO_EVIDENCE", f"fields without evidence: {', '.join(k for k in filled if k not in cited)}")
+    unverified = set(out.get("unverified") or [])
+    year, visit = str(out.get("rule_year") or ""), str(card.get("visit", {}).get("date") or "")
+    if re.fullmatch(r"\d{4}", year) and re.match(r"\d{4}-", visit):
+        if int(year) < int(visit[:4]) - 1 and not set(filled) <= unverified:
+            P.add("RULE_TOO_OLD", f"rules dated {year} for a {visit[:4]} visit: every field must be listed in unverified")
+        if year not in flat("\n".join(texts.values())):
+            P.add("VALUE_NOT_IN_QUOTE", f"rule_year {year} does not appear in the saved pages", "review")
+    # The cited sentence should carry the value (catches a real quote attached to a made-up number).
+    checks = []
+    if r.get("advance_days") is not None and "advance_days" not in unverified:
+        checks.append(("advance_days", says_number(quoted(good, "advance_days"), r["advance_days"])))
+    for f in ("release_time", "last_entry"):
+        if r.get(f) and f not in unverified:
+            checks.append((f, says_time(quoted(good, f), r[f])))
+    if r.get("closed_days") and "closed_days" not in unverified:
+        text = quoted(good, "closed_days")
+        said = cn_days_to_keys(re.findall(r"(?:周|星期|礼拜)[一二三四五六日天]", text))
+        checks.append(("closed_days", cn_days_to_keys(r["closed_days"]) <= said and bool(said)))
+    if r.get("price") and "price" not in unverified:
+        text, nums = quoted(good, "price"), re.findall(r"\d+", flat(r["price"]))
+        checks.append(("price", all(says_number(text, int(n)) for n in nums) if nums else flat(r["price"]) in text))
+    for field, ok in checks:
+        if not ok and field in cited:
+            P.add("VALUE_NOT_IN_QUOTE", f"rule.{field} = {r[field]!r} is not what its quote says", "review")
+
+
+def validate_xhs(card, out, texts, P):
+    if out["result"] not in ("graded", "insufficient"):
+        P.add("SCHEMA", "result must be graded|insufficient")
+    for i, n in enumerate(out["notes"]):
+        if not shape(n, SHAPES["xhs.note"], f"notes[{i}]", P):
+            continue
+        if find_raw(texts, n["file"]) is None:
+            P.add("CITED_FILE_MISSING", f"notes[{i}]: file {n['file']!r} is not in raw/")
+        if n["is_marketing"] != (len(n.get("marketing_hits") or []) >= 2):
+            P.add("SCHEMA", f"notes[{i}]: is_marketing must equal (marketing_hits >= 2)")
+        check_quotes(n.get("real_signals"), texts, f"notes[{i}].real_signals", P, default_file=n["file"])
+    check_quotes(out.get("red_flags"), texts, "red_flags", P)
+    check_quotes(out.get("taste_filter_hits"), texts, "taste_filter_hits", P)
+    authors = {n.get("author") for n in out["notes"] if isinstance(n, dict)
+               and not n.get("is_marketing") and n.get("stance") in ("正面", "混合")}
+    if out["independent_positive"] != len(authors):
+        P.add("SCHEMA", f"independent_positive should be {len(authors)} (distinct non-marketing authors)")
+    if len(out.get("planner_note") or "") > 80:
+        P.add("SCHEMA", "planner_note longer than 80 chars")
 
 
 def validate_out(card, out, texts):
-    probs = []
+    """All deterministic checks for one output → Problems (dicts with code / level / msg)."""
+    P = Problems()
     if card.get("schema") != SCHEMA:
-        return [f"task card is from an older version (schema {card.get('schema', 1)}): re-run init / add-xhs"]
-    if out.get("id") != card["id"]:
-        probs.append(f"id {out.get('id')!r} != card {card['id']!r}")
-    if out.get("fingerprint") != card["fingerprint"]:
-        probs.append(f"stale or unbound output: fingerprint {out.get('fingerprint')!r} != card "
-                     f"{card['fingerprint']!r} (the task's inputs changed after this was written, "
-                     f"or the worker did not copy it)")
+        P.add("LEGACY_CARD", f"task card is from an older version (schema {card.get('schema', 1)}): re-run init / add-xhs")
+        return P
     kind = card["kind"]
-    if out.get("kind") != kind:
-        probs.append(f"kind {out.get('kind')!r} != {kind!r}")
-    if out.get("confidence") not in ("high", "medium", "low"):
-        probs.append("confidence must be high|medium|low")
-    if kind == "poi":
-        if out.get("result") not in ("found", "not_found", "ambiguous", "insufficient"):
-            probs.append("result must be found|not_found|ambiguous|insufficient")
-        m = out.get("match")
-        if out.get("result") == "found":
-            if not isinstance(m, dict) or not m.get("name"):
-                probs.append("found but match.name missing")
-            else:
-                check_hours_week(m.get("hours_week"), probs)
-                lng, lat = m.get("lng"), m.get("lat")
-                if (lng is None) != (lat is None):
-                    probs.append("only one of lng/lat")
-                if lng is not None and not (73 <= float(lng) <= 136 and 3 <= float(lat) <= 54):
-                    probs.append(f"lng/lat {lng},{lat} outside mainland China")
-                if (m.get("hours") or m.get("hours_week")) and not any(
-                        e.get("field") in ("hours", "hours_week") for e in out.get("evidence", [])):
-                    probs.append("hours given without hours evidence")
-        elif m not in (None, {}):
-            probs.append("match must be null unless result is found")
-        if out.get("result") == "ambiguous" and not out.get("candidates"):
-            probs.append("ambiguous but no candidates")
-        check_quotes(out.get("evidence"), texts, "evidence", probs)
-    elif kind == "ticket":
-        if out.get("result") not in ("found", "insufficient"):
-            probs.append("result must be found|insufficient")
-        r = out.get("rule")
-        if out.get("result") == "found":
-            if not isinstance(r, dict):
-                probs.append("found but rule missing")
-            else:
-                for f in ("release_time", "last_entry"):
-                    if r.get(f) not in (None, "") and minutes(r[f]) is None:
-                        probs.append(f"rule.{f} must be HH:MM")
-                if r.get("advance_days") is not None and not isinstance(r["advance_days"], int):
-                    probs.append("rule.advance_days must be an integer")
-                filled = [k for k, v in r.items() if v not in (None, "", [])]
-                cited = {e.get("field") for e in out.get("evidence", [])}
-                missing = [k for k in filled if k not in cited]
-                if missing:
-                    probs.append(f"fields without evidence: {', '.join(missing)}")
-        check_quotes(out.get("evidence"), texts, "evidence", probs)
-    elif kind == "xhs":
-        if out.get("result") not in ("graded", "insufficient"):
-            probs.append("result must be graded|insufficient")
-        for i, n in enumerate(out.get("notes", [])):
-            hits = n.get("marketing_hits", [])
-            if bool(n.get("is_marketing")) != (len(hits) >= 2):
-                probs.append(f"notes[{i}]: is_marketing must equal (marketing_hits >= 2)")
-            check_quotes(n.get("real_signals"), texts, f"notes[{i}].real_signals", probs)
-        check_quotes(out.get("red_flags"), texts, "red_flags", probs)
-        check_quotes(out.get("taste_filter_hits"), texts, "taste_filter_hits", probs)
-        authors = {n.get("author") for n in out.get("notes", [])
-                   if not n.get("is_marketing") and n.get("stance") in ("正面", "混合")}
-        if out.get("independent_positive") != len(authors):
-            probs.append(f"independent_positive should be {len(authors)} (distinct non-marketing authors)")
-        if len(out.get("planner_note", "")) > 80:
-            probs.append("planner_note longer than 80 chars")
-    return probs
+    if not shape(out, SHAPES[kind], "output", P):
+        return P
+    if out["id"] != card["id"]:
+        P.add("ID_MISMATCH", f"id {out['id']!r} != card {card['id']!r}")
+    if out["kind"] != kind:
+        P.add("ID_MISMATCH", f"kind {out['kind']!r} != {kind!r}")
+    if out["fingerprint"] != card["fingerprint"]:
+        P.add("STALE_OUTPUT", f"fingerprint {out['fingerprint']!r} != card {card['fingerprint']!r}: the task's "
+                              f"inputs changed after this was written, or the worker did not copy it")
+    if out["confidence"] not in ("high", "medium", "low"):
+        P.add("SCHEMA", "confidence must be high|medium|low")
+    {"poi": validate_poi, "ticket": validate_ticket, "xhs": validate_xhs}[kind](card, out, texts, P)
+    return P
 
 
 def run_check(work, quiet=False):
@@ -521,10 +718,9 @@ def run_check(work, quiet=False):
         with open(outp, "rb") as f:
             sha = hashlib.sha1(f.read()).hexdigest()
         try:
-            out = read_json(outp)
-            probs = validate_out(card, out, raw_texts(card, work))
-        except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as e:
-            probs = [f"unreadable output: {e}"]
+            probs = [f"{p['code']}: {p['msg']}" for p in validate_out(card, read_json(outp), raw_texts(card, work))]
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            probs = [f"UNREADABLE: output is not valid JSON ({e})"]
         fails = prev.get("fails", 0)
         if probs and prev.get("sha") != sha:
             fails += 1
