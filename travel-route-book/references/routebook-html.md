@@ -16,6 +16,7 @@
   "subtitle": "日期 · 交通 · 住哪",
   "map": "amap",                        // 大陆 "amap"，境外 "google"
   "city": "苏州", "adcode": "320500",  // 高德搜索链接用
+  "timezone": "Asia/Tokyo",             // 可选，境外行程写当地时区：conflicts 按当地算「今天」和放号时间
   "route_name": "苏州旅行",              // 手机高德里的路线名（可选）
   "store_key": "routebook-xxx-v1",      // 勾选框存储键；日期大改后换一个
   "notice": "",                          // 非空时总览顶部醒目显示（天气调整等）
@@ -34,7 +35,8 @@
       "hours_week": {"mon": [], "tue": [["09:00","17:00"]]},  // 结构化营业时间：[] = 当天休息；没写的天 = 未知；过午夜写 "26:00"
       "booking": true,                     // 需要预约 → delegate.py 出预约卡
       "booking_rule": {"channel": "…", "advance_days": 7, "release_time": "09:00",
-                       "closed_days": ["周一"], "last_entry": "16:00"}  // merge 写入，conflicts 用
+                       "closed_days": ["周一"], "last_entry": "16:00"},  // merge 写入，conflicts 用
+      "booking_ref": "t-…", "provenance": {"task": "p-…", "confidence": "high"}  // merge 写入：这些信息来自哪张任务卡，不用手改
     }],
     "rain_plan": "…", "backups": ["…"], "tips": ["…"]
   }],
@@ -42,7 +44,8 @@
 }
 ```
 脚本会检查：缺 id、重复 id、只填了 lng 或 lat 之一等，问题打印到 stderr。
-`tickets` 里由 `delegate.py merge` 生成的条目带 `"ref": "<卡号>"`，重跑时原地更新。手写条目不带 `ref`，合并时如果写的是同一个场馆，会被替换掉。
+`tickets` 里由 `delegate.py merge` 生成的条目带 `"ref": "<卡号>"`，重跑时原地更新；参观日期改了，旧日期的那条会自动删掉。手写条目不带 `ref`，**不会被覆盖**：如果它提到同一个场馆，合并时会在待核实里提醒你删掉多余的一条。想让脚本直接接管某条手写条目，给它加 `"venue": "<场馆全名>"`。
+改了地点名字但没清掉旧的门牌、坐标、营业时间，`init` 会提醒：这些信息可能还是上一家店的。
 发布前跑一次 `python3 scripts/delegate.py conflicts trip.json`，必须没有 ERROR（见 `references/delegation.md`）。
 
 ## 生成的页面包含

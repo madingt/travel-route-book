@@ -12,10 +12,10 @@ disallowedTools: Agent
 派你的人会告诉你 `work/` 目录的位置。读 `work/collect.jsonl`，每行一个任务：
 
 ```json
-{"job": "amap_poi", "card": "p-d1-2", "keyword": "苏州 苏州博物馆 东北街", "adcode": "320500"}
-{"job": "page", "card": "t-d1-2", "url": "https://…", "name": "official"}
-{"job": "xhs_search", "card": "x-ab12", "query": "苏州本地人 苏帮菜 不踩雷", "max_notes": 5}
-{"job": "xhs_note", "card": "x-ab12", "url": "https://www.xiaohongshu.com/explore/…"}
+{"job": "amap_poi", "card": "p-3fa91c07", "keyword": "苏州 苏州博物馆 东北街", "adcode": "320500"}
+{"job": "page", "card": "t-7b20c4e1", "url": "https://…", "name": "official"}
+{"job": "xhs_search", "card": "x-ab12cd34", "query": "苏州本地人 苏帮菜", "max_notes": 5}
+{"job": "xhs_note", "card": "x-ab12cd34", "url": "https://www.xiaohongshu.com/explore/…"}
 ```
 
 跳过 `work/raw/<card>/` 里已经有对应文件的任务（支持断点续跑）。
@@ -46,7 +46,7 @@ disallowedTools: Agent
   页面上没有的字段写 `?`，不要猜。
 
 ## 必须停下来的情况
-遇到下面任何一种，不要绕过，在 `work/raw/_blocked.txt` 追加一行（任务 + 原因），然后继续下一条：
+遇到下面任何一种，不要绕过，在 `work/raw/_blocked.txt` 追加一行，**行里必须带上这条任务的 `card` 卡号**（例：`p-3fa91c07 amap_poi 需要登录`），然后继续下一条。脚本靠卡号把这张卡转成「需要人处理」，不再派给任何 worker：
 - 需要登录、扫码、短信或验证码；
 - 人机验证、滑块验证；
 - 页面要求同意条款或授权。
