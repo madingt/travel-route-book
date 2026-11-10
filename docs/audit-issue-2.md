@@ -42,7 +42,7 @@
 ## 3. 修复后
 ```
 $ python3 -m unittest discover -s tests
-Ran 59 tests ... OK            （evidence/03-after-fixes.txt）
+Ran 60 tests ... OK            （evidence/03-after-fixes.txt）
 ```
 - 示例行程生成的 HTML 与修改前**逐字节相同**（sha256 `7f807be6…4941e`），`test_routebook.cjs` 9 项仍然 PASS；`map_links.py` 输出相同。
 - `pyflakes` 对 `scripts/`、`tests/`、`bench/` 无告警。

@@ -76,7 +76,7 @@ python3 $D conflicts trip.json           # 营业时间、闭馆日、日期、�
 不需要联网，不需要任何账号，只用 Python 自带的库：
 
 ```bash
-python3 -m unittest discover -s tests -v   # 59 个回归测试，约 15 秒
+python3 -m unittest discover -s tests -v   # 60 个回归测试，约 15 秒
 python3 bench/replay.py                    # 用录下来的真实 agent 输出重新打分
 ```
 

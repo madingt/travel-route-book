@@ -171,3 +171,28 @@ class Resume(Case):
         self.assertEqual(self.run_cli("pending", self.work).stdout, first)
         self.answer_poi("虎丘山风景名胜区")
         self.assertNotIn(todo, self.run_cli("pending", self.work).stdout)
+
+
+class CaptureAmap(Case):
+    def test_api_capture_writes_raw_for_each_poi_card_once(self):
+        """capture-amap with the network call stubbed: raw lands under the content-based id."""
+        import argparse, contextlib, io, sys
+        from helpers import SCRIPTS
+        sys.path.insert(0, SCRIPTS)
+        import amap_lookup
+        import delegate
+        self.init()
+        calls = []
+        real, amap_lookup.search = amap_lookup.search, lambda key, city, kw: calls.append(kw) or [{"name": kw}]
+        os.environ["AMAP_KEY"] = "test-key"
+        try:
+            for _ in range(2):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    delegate.cmd_capture_amap(argparse.Namespace(trip=self.trip_path, work=self.work))
+        finally:
+            amap_lookup.search = real
+            del os.environ["AMAP_KEY"]
+        poi = [c for c in self.cards() if c["kind"] == "poi"]
+        self.assertEqual(len(calls), len(poi), "second run must skip what is already saved")
+        for c in poi:
+            self.assertTrue(os.path.exists(self.raw_path(c, "amap_api.json")))
