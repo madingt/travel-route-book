@@ -318,6 +318,36 @@ class DateConflicts(Case):
         r = self.conflicts(trip)
         self.assertIn("早于", r.stdout)
 
+    def booked(self, tz=None):
+        trip = self.trip()
+        if tz:
+            trip["timezone"] = tz
+        self.stop("苏州博物馆（本馆）", trip)["booking_rule"] = {
+            "required": True, "advance_days": 7, "release_time": "09:00"}
+        return trip
+
+    def test_release_time_is_read_in_the_destination_timezone(self):
+        """Slots open 10/31 09:00 local. At 08:30 Beijing that is still ahead; in Tokyo it is 09:30."""
+        at = "2026-10-31T08:30:00+08:00"
+        self.save_trip(self.booked())
+        self.assertNotIn("已经过了", self.run_cli("conflicts", self.trip_path, now=at).stdout)
+        self.save_trip(self.booked(tz="Asia/Tokyo"))
+        self.assertIn("已经过了", self.run_cli("conflicts", self.trip_path, now=at).stdout)
+
+    def test_unknown_timezone_is_an_error(self):
+        r = self.conflicts(self.booked(tz="Mars/Olympus"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("timezone", r.stdout)
+
+    def test_past_day_is_flagged(self):
+        self.save_trip(self.trip())
+        self.assertIn("已经过去", self.run_cli("conflicts", self.trip_path, now="2026-11-08T12:00:00+08:00").stdout)
+
+    def test_overseas_trip_without_timezone_is_flagged(self):
+        trip = self.trip()
+        trip["map"] = "google"
+        self.assertIn("timezone", self.conflicts(trip).stdout)
+
     def test_closed_day_is_an_error(self):
         """Pin existing behaviour: visiting on the weekly closed day is caught."""
         trip = self.trip()

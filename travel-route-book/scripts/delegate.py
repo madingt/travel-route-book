@@ -1008,6 +1008,19 @@ def cmd_merge(a):
 
 # ---------- conflicts ----------
 
+def trip_clock(trip):
+    """(tzinfo or None, now in the destination's timezone). trip.timezone is an IANA name."""
+    name = trip.get("timezone")
+    if not name:
+        return None, now()
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(str(name))
+    except Exception:     # unknown name, or no tz database on this machine
+        return None, now()
+    return tz, now().astimezone(tz)
+
+
 def find_conflicts(trip):
     out = []
 
@@ -1015,8 +1028,32 @@ def find_conflicts(trip):
         out.append({"level": level, "day": day.get("label") or day.get("id"),
                     "time": stop.get("time", ""), "name": stop.get("name", ""), "msg": msg})
 
+    tz, clock = trip_clock(trip)
+    if trip.get("timezone") and tz is None:
+        out.append({"level": "ERROR", "day": "-", "time": "", "name": "",
+                    "msg": f"timezone「{trip['timezone']}」不是合法的时区名（例：Asia/Tokyo）"})
+    elif not trip.get("timezone") and trip.get("map") == "google":
+        out.append({"level": "WARN", "day": "-", "time": "", "name": "",
+                    "msg": "境外行程没写 timezone：「今天」和放号时间只能按这台电脑的时区算，可能差一天"})
+    prev_date = None
     for day in trip.get("days", []):
         wk = day_key(day)
+        none = {"time": "", "name": ""}
+        date, iso = None, day.get("iso_date")
+        if iso:
+            try:
+                date = dt.date.fromisoformat(str(iso))
+            except ValueError:
+                add("ERROR", day, none, f"iso_date「{iso}」不是合法日期（要写成 2026-11-07 这样）")
+        said = sorted(cn_days_to_keys([day.get("weekday", ""), day.get("date", "")]))
+        if date and said and DAYS[date.weekday()] not in said:
+            add("ERROR", day, none, f"iso_date {iso} 是{DAY_CN[DAYS[date.weekday()]]}，"
+                                    f"但这一天写的是{DAY_CN[said[0]]}，两个对不上")
+        if date and prev_date and date <= prev_date:
+            add("WARN", day, none, f"iso_date {iso} 早于或等于上一天（{prev_date.isoformat()}），天的顺序或日期写错了")
+        if date and date < clock.date():
+            add("WARN", day, none, f"这一天（{iso}）已经过去了")
+        prev_date = date or prev_date
         stops = [s for s in day.get("stops", []) if s.get("status") != "已移出"]
         prev_t = None
         for i, s in enumerate(stops):
@@ -1031,6 +1068,15 @@ def find_conflicts(trip):
                 add("ERROR", day, s, f"{DAY_CN[wk]}是闭馆日")
             if t is not None and minutes(rule.get("last_entry")) is not None and t > minutes(rule["last_entry"]):
                 add("ERROR", day, s, f"晚于最晚入场 {rule['last_entry']}")
+            closed = cn_days_to_keys(rule.get("closed_days"))
+            for k in sorted(closed, key=DAYS.index):
+                if isinstance(hw, dict) and hw.get(k):
+                    add("WARN", day, s, f"预约规则写{DAY_CN[k]}闭馆，但地图营业时间显示{DAY_CN[k]}营业，两处不一致，以官方说明为准")
+            adv, rt = rule.get("advance_days"), minutes(rule.get("release_time"))
+            if date and rule.get("required") and isinstance(adv, int) and date >= clock.date():
+                opens = dt.datetime.combine(date - dt.timedelta(days=adv), dt.time(*divmod(rt or 0, 60)), clock.tzinfo)
+                if opens <= clock:
+                    add("WARN", day, s, f"放号时间（{opens:%m/%d %H:%M}）已经过了，现在就能约，别再等")
             if hw is None:
                 if s.get("type") in NEEDS_HOURS:
                     add("WARN", day, s, "营业时间还没结构化核对（hours_week 为空）")
