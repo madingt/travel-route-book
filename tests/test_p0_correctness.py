@@ -7,7 +7,7 @@ import copy
 import os
 import unittest
 
-from helpers import Case, POI_MATCH, RAW_POI, TICKET_EVIDENCE, read, write
+from helpers import Case, POI_MATCH, RAW_POI, TICKET_EVIDENCE, write
 
 
 class TaskIdentity(Case):
@@ -162,6 +162,9 @@ class Evidence(Case):
         ]
         for label, kind, patch in bad:
             with self.subTest(label):
+                for f in ("state.json", "check.json"):      # each case starts with a clean attempt count
+                    if os.path.exists(os.path.join(self.work, f)):
+                        os.remove(os.path.join(self.work, f))
                 if kind == "poi":
                     card, out = self.answer_poi("拙政园")
                 else:

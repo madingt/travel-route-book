@@ -14,7 +14,13 @@ from saved raw pages; this script does everything deterministic. See references/
   delegate.py merge     trip.json work/ [--write]  # fold checked results into trip.json
   delegate.py conflicts trip.json [--json]         # opening hours / closed days vs. the schedule
 
-work/ layout:  tasks/<id>.json  raw/<id>/*  out/<id>.json  collect.jsonl  check.json
+  delegate.py status    work/ [--json]             # every task and its state (resume point)
+  delegate.py claim     work/ <id>… [--owner W]    # mark as handed to a worker (no double dispatch)
+  delegate.py approve   work/ <id> --by NAME       # accept a needs_review output after reading it
+  delegate.py unblock   work/ <id>…                # the user signed in themselves; collect again
+
+work/ layout:  tasks/<id>.json  raw/<id>/*  out/<id>.json  collect.jsonl  state.json  events.jsonl
+               backups/trip-<hash>.json
 
 Task identity (schema 2). A card's id is a hash of what decides *which pages get collected*
 (place name + address hint + city for a POI; venue + visit date for a ticket; candidate for
@@ -158,6 +164,12 @@ def load_cards(work, active_only=True):
             continue
         cards[cid] = c
     return cards
+
+
+def label(card):
+    """Human name of a task; ids are hashes, so every listing shows this next to them."""
+    name = (card.get("stop") or {}).get("name") or card.get("venue") or card.get("candidate") or "?"
+    return {"poi": "地点", "ticket": "预约", "xhs": "小红书"}.get(card.get("kind"), "?") + "·" + name
 
 
 # ---------- task identity ----------
@@ -704,70 +716,270 @@ def validate_out(card, out, texts):
     return P
 
 
-def run_check(work, quiet=False):
-    cards = load_cards(work)
-    state_path = os.path.join(work, "check.json")
-    state = read_json(state_path, {})
-    report = {}
-    for cid, card in cards.items():
-        prev = state.get(cid, {})
-        outp = os.path.join(work, "out", cid + ".json")
-        if not os.path.exists(outp):
-            report[cid] = {"status": "missing", "fails": prev.get("fails", 0), "sha": None, "problems": []}
-            continue
-        with open(outp, "rb") as f:
-            sha = hashlib.sha1(f.read()).hexdigest()
+# ---------- task state (durable checkpoint) ----------
+#
+# state.json is the checkpoint: one record per live task, rewritten atomically, and identical
+# bytes when nothing changed. It is derived from files (cards, raw/, out/) plus the few facts
+# files cannot hold (attempt count, lease, approval), so losing it only loses those.
+# events.jsonl is the append-only history of state changes.
+#
+#   pending       nothing usable yet (or the old output is stale) — dispatch it
+#   running       claimed by a worker; the lease expires so a dead worker cannot hold it
+#   succeeded     passed every deterministic check (or review-level doubts were approved)
+#   failed        broke the contract; retry with the reasons attached
+#   needs_review  a human or the planner must act: retries used up, sign-in/CAPTCHA wall,
+#                 or the quotes are real but do not visibly carry the values
+
+STATES = ("pending", "running", "succeeded", "failed", "needs_review")
+MAX_ATTEMPTS = 2
+LEASE_MINUTES = 20
+
+
+def sha_of(path):
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()[:16]
+
+
+def load_state(work):
+    try:
+        data = read_json(os.path.join(work, "state.json"), {})
+        return data["tasks"] if isinstance(data.get("tasks"), dict) else {}
+    except (json.JSONDecodeError, AttributeError, KeyError, UnicodeDecodeError):
+        sys.stderr.write("warning: state.json unreadable; rebuilding it from the files\n")
+        return {}
+
+
+def blocked_ids(work, cards):
+    path = os.path.join(work, "raw", "_blocked.txt")
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    return {cid for cid in cards if cid in text}
+
+
+def evaluate(card, prev, work, clock, blocked):
+    """Next state record for one task from its files and its previous record."""
+    cid, fp = card["id"], card.get("fingerprint")
+    outp = os.path.join(work, "out", cid + ".json")
+    sha = sha_of(outp)
+    if prev and prev.get("fingerprint") != fp:
+        # The task's inputs changed: whatever sits in out/ was written for the old version.
+        # Set it aside without charging the worker an attempt.
+        prev = {"attempts": 0, "ignore_sha": sha}
+    rec = {"state": "pending", "kind": card["kind"], "fingerprint": fp, "attempts": prev.get("attempts", 0),
+           "out_sha": prev.get("out_sha"), "reasons": [], "problems": []}
+    for k in ("ignore_sha", "lease", "approved"):
+        if prev.get(k):
+            rec[k] = prev[k]
+    lease = rec.get("lease")
+    live = lease and dt.datetime.fromisoformat(lease["until"]) > clock
+    usable = sha is not None and sha != rec.get("ignore_sha")
+    if usable and not (live and sha == lease.get("out_sha")):
+        # A (new) output is on disk: judge it. This is the only place attempts are counted for
+        # outputs, and only once per distinct file content.
         try:
-            probs = [f"{p['code']}: {p['msg']}" for p in validate_out(card, read_json(outp), raw_texts(card, work))]
+            probs = list(validate_out(card, read_json(outp), raw_texts(card, work)))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            probs = [f"UNREADABLE: output is not valid JSON ({e})"]
-        fails = prev.get("fails", 0)
-        if probs and prev.get("sha") != sha:
-            fails += 1
-        report[cid] = {"status": "fail" if probs else "ok", "fails": fails, "sha": sha, "problems": probs}
-    write_json(state_path, report)
+            probs = [{"code": "UNREADABLE", "level": "error", "msg": f"output is not valid JSON ({e})"}]
+        if sha != rec["out_sha"]:
+            rec["attempts"] += 1
+            rec["out_sha"] = sha
+        rec.pop("lease", None)
+        if (rec.get("approved") or {}).get("out_sha") != sha:
+            rec.pop("approved", None)
+        rec["problems"] = probs
+        rec["reasons"] = sorted({p["code"] for p in probs})
+        if any(p["level"] == "error" for p in probs):
+            rec["state"] = "failed"
+            if rec["attempts"] >= MAX_ATTEMPTS:
+                rec["state"] = "needs_review"
+                rec["reasons"].append("RETRIES_EXHAUSTED")
+        elif probs and not rec.get("approved"):
+            rec["state"] = "needs_review"
+        else:
+            rec["state"] = "succeeded"
+        return rec
+    rec["out_sha"] = prev.get("out_sha")
+    if live:
+        rec["state"] = "running"
+        return rec
+    if lease:                                   # the worker never delivered
+        rec.pop("lease")
+        rec["attempts"] += 1
+        rec["reasons"].append("LEASE_EXPIRED")
+    if sha is not None and sha == rec.get("ignore_sha"):
+        rec["reasons"].append("STALE_OUTPUT")
+    if cid in blocked:
+        rec["state"] = "needs_review"
+        rec["reasons"].append("HUMAN_ACTION_REQUIRED")
+    elif rec["attempts"] >= MAX_ATTEMPTS:
+        rec["state"] = "needs_review"
+        rec["reasons"].append("RETRIES_EXHAUSTED")
+    elif not raw_texts(card, work):
+        rec["reasons"].append("NO_RAW")
+    return rec
+
+
+def run_check(work, quiet=False):
+    """Re-evaluate every live task, persist the checkpoint, log state changes. → {id: record}"""
+    cards = load_cards(work)
+    old = load_state(work)
+    clock, blocked = now(), blocked_ids(work, cards)
+    tasks, events = {}, []
+    for cid in sorted(cards):
+        prev = old.get(cid, {})
+        rec = evaluate(cards[cid], prev, work, clock, blocked)
+        same = all(rec.get(k) == prev.get(k) for k in ("state", "fingerprint", "attempts", "out_sha", "reasons"))
+        rec["updated_at"] = prev.get("updated_at") if same and prev.get("updated_at") else clock.isoformat()
+        if not same:
+            events.append({"at": clock.isoformat(), "task": cid, "from": prev.get("state"), "to": rec["state"],
+                           "attempts": rec["attempts"], "reasons": rec["reasons"]})
+        tasks[cid] = rec
+    save_state(work, tasks, events)
     if not quiet:
-        for cid, r in report.items():
-            if r["status"] == "ok":
+        for cid, r in tasks.items():
+            if r["state"] == "succeeded":
                 continue
-            print(f"{r['status'].upper():7} {cid}" + (f"  (failed {r['fails']}x)" if r["fails"] else ""))
+            print(f"{r['state'].upper():12} {cid}  {label(cards[cid])}" + (f"  (attempt {r['attempts']})" if r["attempts"] else "")
+                  + (f"  [{', '.join(r['reasons'])}]" if r["reasons"] else ""))
             for pr in r["problems"]:
-                print(f"         - {pr}")
-        ok = sum(r["status"] == "ok" for r in report.values())
-        print(f"ok {ok}/{len(report)}")
-    return report
+                print(f"         - {pr['code']}: {pr['msg']}")
+        print("  ".join(f"{st} {sum(r['state'] == st for r in tasks.values())}" for st in STATES))
+    return tasks
+
+
+def save_state(work, tasks, events=()):
+    path = os.path.join(work, "state.json")
+    text = dump_json({"schema": SCHEMA, "tasks": tasks})
+    current = None
+    if os.path.exists(path):
+        with open(path, encoding="utf-8", errors="replace") as f:
+            current = f.read()
+    if text != current:
+        write_text(path, text)
+    if events:
+        with open(os.path.join(work, "events.jsonl"), "a", encoding="utf-8") as f:
+            for e in events:
+                f.write(json.dumps(e, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 def cmd_check(a):
-    report = run_check(a.work)
-    sys.exit(0 if all(r["status"] == "ok" for r in report.values()) else 1)
+    tasks = run_check(a.work)
+    sys.exit(0 if all(r["state"] == "succeeded" for r in tasks.values()) else 1)
+
+
+def cmd_status(a):
+    tasks = run_check(a.work, quiet=True)
+    cards = load_cards(a.work)
+    counts = {st: sum(r["state"] == st for r in tasks.values()) for st in STATES}
+    if a.json:
+        print(json.dumps({"counts": counts, "tasks": tasks}, ensure_ascii=False, indent=2))
+        return
+    print("  ".join(f"{st} {n}" for st, n in counts.items()))
+    for cid, r in tasks.items():
+        print(f"  {r['state']:12} {cid}  {label(cards[cid])}  attempts={r['attempts']}"
+              + (f"  [{', '.join(r['reasons'])}]" if r["reasons"] else ""))
+
+
+def cmd_claim(a):
+    """Mark tasks as handed to a worker so nobody dispatches them twice."""
+    tasks = run_check(a.work, quiet=True)
+    clock, refused, events = now(), [], []
+    for cid in a.ids:
+        r = tasks.get(cid)
+        if r is None:
+            refused.append(f"{cid}: no such live task")
+        elif r["state"] == "running":
+            refused.append(f"{cid}: already running (owner {r['lease']['owner']}, until {r['lease']['until']})")
+        elif r["state"] not in ("pending", "failed"):
+            refused.append(f"{cid}: is {r['state']}, not dispatchable" + (f" [{', '.join(r['reasons'])}]" if r["reasons"] else ""))
+        else:
+            r["lease"] = {"owner": a.owner, "until": (clock + dt.timedelta(minutes=a.minutes)).isoformat(),
+                          "out_sha": sha_of(os.path.join(a.work, "out", cid + ".json"))}
+            events.append({"at": clock.isoformat(), "task": cid, "from": r["state"], "to": "running",
+                           "attempts": r["attempts"], "reasons": [], "owner": a.owner})
+            r.update(state="running", updated_at=clock.isoformat(), reasons=[], problems=[])
+            print(f"{cid}: running (owner {a.owner}, {a.minutes} min)")
+    save_state(a.work, tasks, events)
+    for line in refused:
+        print(line)
+    sys.exit(1 if refused else 0)
+
+
+def cmd_approve(a):
+    """A person (or the planner) has read the evidence and accepts a needs_review output as is."""
+    tasks = run_check(a.work, quiet=True)
+    r = tasks.get(a.id)
+    if r is None:
+        sys.exit(f"no live task {a.id}")
+    if r["state"] != "needs_review" or any(p["level"] == "error" for p in r["problems"]) or not r["problems"]:
+        sys.exit(f"{a.id} is {r['state']} [{', '.join(r['reasons'])}]: only outputs whose sole problems are "
+                 f"review-level can be approved. Fix the output (or the blocker) instead.")
+    clock = now()
+    r["approved"] = {"by": a.by, "note": a.note, "out_sha": r["out_sha"], "at": clock.isoformat()}
+    r.update(state="succeeded", updated_at=clock.isoformat())
+    save_state(a.work, tasks, [{"at": clock.isoformat(), "task": a.id, "from": "needs_review", "to": "succeeded",
+                                "attempts": r["attempts"], "reasons": r["reasons"], "approved_by": a.by,
+                                "note": a.note}])
+    print(f"{a.id}: approved by {a.by}; it will be merged")
+
+
+def cmd_unblock(a):
+    """The user has signed in / solved the CAPTCHA themselves: let collection try again."""
+    path = os.path.join(a.work, "raw", "_blocked.txt")
+    if not os.path.exists(path):
+        print("nothing is blocked")
+        return
+    with open(path, encoding="utf-8", errors="replace") as f:
+        lines = f.read().splitlines()
+    keep = [ln for ln in lines if not any(cid in ln for cid in a.ids)]
+    write_text(path, "".join(ln + "\n" for ln in keep))
+    clock = now().isoformat()
+    with open(os.path.join(a.work, "events.jsonl"), "a", encoding="utf-8") as f:
+        for ln in lines:
+            if ln not in keep:
+                f.write(json.dumps({"at": clock, "event": "unblocked", "line": ln}, ensure_ascii=False) + "\n")
+    print(f"unblocked {len(lines) - len(keep)} line(s); send the collector again")
+
+
+REVIEW_HINT = {
+    "HUMAN_ACTION_REQUIRED": "a page needs sign-in / CAPTCHA: ask the user to do it in their own browser, "
+                             "then `unblock` and collect again. Never enter credentials for them.",
+    "RETRIES_EXHAUSTED": "the worker failed twice: the planner does this card by hand (same output format).",
+    "VALUE_NOT_IN_QUOTE": "quotes are real but do not visibly state the value: open the out file, compare, "
+                          "then fix it or `approve`.",
+}
 
 
 def cmd_pending(a):
-    report = run_check(a.work, quiet=True)
+    tasks = run_check(a.work, quiet=True)
     cards = load_cards(a.work)
-    blocked = os.path.join(a.work, "raw", "_blocked.txt")
-    todo = {}
-    for cid, r in report.items():
-        if r["status"] == "ok":
+    groups = {}
+    for cid, r in tasks.items():
+        if r["state"] == "succeeded":
             continue
-        has_raw = bool(raw_texts(cards[cid], a.work))
-        if not has_raw:
-            todo.setdefault("collect first (page-collector or capture-amap)", []).append((cid, ""))
-        elif r["fails"] >= 2:
-            todo.setdefault("planner: do it yourself (worker failed twice)", []).append((cid, ""))
+        if r["state"] == "running":
+            who, why = "running — do not dispatch again", f"owner {r['lease']['owner']}, lease until {r['lease']['until']}"
+        elif r["state"] == "needs_review":
+            who = "needs_review — planner or user, not a worker"
+            why = "; ".join(REVIEW_HINT[c] for c in r["reasons"] if c in REVIEW_HINT) or ", ".join(r["reasons"])
+        elif "NO_RAW" in r["reasons"]:
+            who, why = "collect first (page-collector or capture-amap)", ""
         else:
-            why = "; ".join(r["problems"][:3])
-            todo.setdefault(WORKER[cards[cid]["kind"]], []).append((cid, why))
-    if os.path.exists(blocked):
-        print(f"! blocked pages listed in {blocked} — ask the user to sign in themselves, or skip.\n")
-    if not todo:
+            who = WORKER[cards[cid]["kind"]]
+            why = "; ".join(f"{p['code']}: {p['msg']}" for p in r["problems"][:3]) or ", ".join(r["reasons"])
+            why = why and "retry because: " + why
+        groups.setdefault(who, []).append((cid, why))
+    if not groups:
         print("nothing pending")
         return
-    for who, items in todo.items():
+    for who, items in groups.items():
         print(f"[{who}]  {len(items)}")
         for cid, why in items:
-            print(f"  {cid}  {cards[cid].get('raw', '')}" + (f"\n      retry because: {why}" if why else ""))
+            print(f"  {cid}  {label(cards[cid])}  {cards[cid].get('raw', '')}" + (f"\n      {why}" if why else ""))
 
 
 # ---------- digest ----------
@@ -793,8 +1005,8 @@ def cmd_digest(a):
     report = run_check(a.work, quiet=True)
     for cid, card in load_cards(a.work).items():
         r = report.get(cid, {})
-        if r.get("status") != "ok":
-            print(f"{cid}  [{r.get('status')}]")
+        if r.get("state") != "succeeded":
+            print(f"{cid}  {label(card)}  [{r.get('state')}" + (": " + ", ".join(r["reasons"]) if r.get("reasons") else "") + "]")
             continue
         o = read_json(os.path.join(a.work, "out", cid + ".json"))
         flags = ("  ⚑ " + "；".join(o.get("flags", []))) if o.get("flags") else ""
@@ -914,7 +1126,7 @@ def cmd_merge(a):
     by_poi, by_venue = {}, {}      # amap id -> [(stop name, matched name)], venue -> [(card, rule)]
     for cid in sorted(cards):      # sorted: the result never depends on creation order
         card = cards[cid]
-        if report.get(cid, {}).get("status") != "ok":
+        if report.get(cid, {}).get("state") != "succeeded":
             continue
         o = read_json(os.path.join(a.work, "out", cid + ".json"))
         if card["kind"] == "poi":
@@ -1133,6 +1345,16 @@ def main():
     p.set_defaults(fn=cmd_capture_amap)
     for name, fn in (("pending", cmd_pending), ("check", cmd_check), ("digest", cmd_digest)):
         p = sub.add_parser(name); p.add_argument("work"); p.set_defaults(fn=fn)
+    p = sub.add_parser("status"); p.add_argument("work"); p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_status)
+    p = sub.add_parser("claim"); p.add_argument("work"); p.add_argument("ids", nargs="+")
+    p.add_argument("--owner", default="worker"); p.add_argument("--minutes", type=int, default=LEASE_MINUTES)
+    p.set_defaults(fn=cmd_claim)
+    p = sub.add_parser("approve"); p.add_argument("work"); p.add_argument("id")
+    p.add_argument("--by", required=True, help="who looked at the evidence"); p.add_argument("--note", default="")
+    p.set_defaults(fn=cmd_approve)
+    p = sub.add_parser("unblock"); p.add_argument("work"); p.add_argument("ids", nargs="+")
+    p.set_defaults(fn=cmd_unblock)
     p = sub.add_parser("merge"); p.add_argument("trip"); p.add_argument("work")
     p.add_argument("--write", action="store_true"); p.set_defaults(fn=cmd_merge)
     p = sub.add_parser("conflicts"); p.add_argument("trip"); p.add_argument("--json", action="store_true")
