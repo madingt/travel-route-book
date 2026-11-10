@@ -1,0 +1,23 @@
+{
+  "id": "t-6fc98ac6", "kind": "ticket", "fingerprint": "4ec5b85f97759ede", "result": "found",
+  "rule": {"required": true, "channel": "云栖文旅公众号", "advance_days": 3, "release_time": "08:00",
+           "same_day": null, "closed_days": null, "last_entry": null, "eligibility": null,
+           "price": "40元", "real_name": null},
+  "rule_year": "2023",
+  "unverified": ["required", "channel", "advance_days", "release_time", "same_day", "closed_days", "last_entry", "eligibility", "price", "real_name"],
+  "sources": [{"file": "official.txt", "url": "https://www.yunqi-pagoda.example/news/20230412"}],
+  "evidence": [
+    {"file": "official.txt", "field": "required", "quote": "游客请通过「云栖文旅」公众号预约"},
+    {"file": "official.txt", "field": "channel", "quote": "通过「云栖文旅」公众号预约"},
+    {"file": "official.txt", "field": "advance_days", "quote": "提前3天开放预约"},
+    {"file": "official.txt", "field": "release_time", "quote": "每日08:00放票"},
+    {"file": "official.txt", "field": "price", "quote": "门票40元"}
+  ],
+  "flags": [
+    "官方公告发布于 2023 年 4 月 12 日，早于去年（2025 年），按规则所有字段转入 unverified",
+    "travel-notes.example 的旅行笔记称现已不用预约、票价涨到 60、登塔另加 20，属非官方来源，未填入 rule",
+    "same_day、closed_days、last_entry、eligibility、real_name 在官方原文中没有写，留空",
+    "行程日期 2026-11-10 的预约规则需以现行官方渠道再核对"
+  ],
+  "confidence": "low"
+}

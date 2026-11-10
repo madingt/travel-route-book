@@ -1,0 +1,24 @@
+{
+  "id": "p-cb20e5dc", "kind": "poi", "fingerprint": "3c1f42ec5954f178", "result": "found",
+  "match": {
+    "name": "临河面馆(老街店)", "amap_id": "B0BENCH021", "place_id": "",
+    "address": "老城区老街12号", "lng": 119.93845, "lat": 30.24966,
+    "phone": "0599-5550221", "nearest_metro": null,
+    "hours": "06:30-13:30（卖完即止）", "hours_note": "卖完即止",
+    "hours_week": {"mon": [["06:30","13:30"]], "tue": [["06:30","13:30"]], "wed": [["06:30","13:30"]],
+                   "thu": [["06:30","13:30"]], "fri": [["06:30","13:30"]],
+                   "sat": [["06:30","13:30"]], "sun": [["06:30","13:30"]]},
+    "closed_notice": ""
+  },
+  "candidates": [],
+  "evidence": [
+    {"file": "detail-B0BENCH021.txt", "field": "address", "quote": "地址：老城区老街12号"},
+    {"file": "detail-B0BENCH021.txt", "field": "hours", "quote": "营业时间：06:30-13:30（卖完即止）"}
+  ],
+  "flags": [
+    "行程 d1 周一 14:00 到访，晚于原文营业时间 06:30-13:30（且卖完即止）",
+    "原文营业时间未写星期，按每天同一时段填写",
+    "新城店（锦绣大道266号）是分店，已排除"
+  ],
+  "confidence": "high"
+}

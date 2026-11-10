@@ -1,0 +1,36 @@
+{
+  "id": "p-8c398db4",
+  "kind": "poi",
+  "fingerprint": "13bec2a364164323",
+  "result": "found",
+  "match": {
+    "name": "半山咖啡",
+    "amap_id": "B0BENCH030",
+    "place_id": "",
+    "address": "西山区半山路5号",
+    "lng": 119.921050,
+    "lat": 30.270330,
+    "phone": null,
+    "nearest_metro": "",
+    "hours": "周一至周日 10:00-19:00",
+    "hours_note": "",
+    "hours_week": {
+      "mon": [["10:00", "19:00"]],
+      "tue": [["10:00", "19:00"]],
+      "wed": [["10:00", "19:00"]],
+      "thu": [["10:00", "19:00"]],
+      "fri": [["10:00", "19:00"]],
+      "sat": [["10:00", "19:00"]],
+      "sun": [["10:00", "19:00"]]
+    },
+    "closed_notice": "店铺装修升级中，预计2026年12月中旬恢复营业，具体时间另行通知。"
+  },
+  "candidates": [],
+  "evidence": [
+    {"file": "detail-B0BENCH030.txt", "field": "address", "quote": "地址：西山区半山路5号"},
+    {"file": "detail-B0BENCH030.txt", "field": "hours", "quote": "营业时间：周一至周日 10:00-19:00"},
+    {"file": "detail-B0BENCH030.txt", "field": "closed_notice", "quote": "商家公告：店铺装修升级中，预计2026年12月中旬恢复营业，具体时间另行通知。"}
+  ],
+  "flags": ["原文同时出现「暂停营业」和装修公告，店铺目前不营业；卡上 d1 周一 15:30 的安排需确认"],
+  "confidence": "high"
+}

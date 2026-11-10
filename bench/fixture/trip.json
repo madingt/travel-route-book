@@ -1,0 +1,125 @@
+{
+  "_comment": "Benchmark fixture. Every place, page and note here is invented; 云栖市 does not exist.",
+  "title": "云栖市两日（基准样例）",
+  "map": "amap",
+  "city": "云栖市",
+  "adcode": "339900",
+  "tickets": [],
+  "days": [
+    {
+      "id": "d1",
+      "label": "D1",
+      "iso_date": "2026-11-09",
+      "weekday": "周一",
+      "title": "老城",
+      "stops": [
+        {
+          "time": "09:30",
+          "name": "青石博物馆",
+          "type": "景点",
+          "address": "青石路88号",
+          "booking": true
+        },
+        {
+          "time": "14:00",
+          "name": "临河面馆",
+          "type": "餐饮",
+          "address": "老街12号"
+        },
+        {
+          "time": "15:30",
+          "name": "半山咖啡",
+          "type": "咖啡",
+          "address": "半山路5号"
+        },
+        {
+          "time": "17:00",
+          "name": "纸间书店",
+          "type": "活动",
+          "address": "文汇巷3号"
+        }
+      ]
+    },
+    {
+      "id": "d2",
+      "label": "D2",
+      "iso_date": "2026-11-10",
+      "weekday": "周二",
+      "title": "江边",
+      "stops": [
+        {
+          "time": "10:00",
+          "name": "云栖塔",
+          "type": "景点",
+          "address": "塔山公园内",
+          "booking": true,
+          "amap_id": "B0BENCH070",
+          "lng": 119.9512,
+          "lat": 30.2621,
+          "status": "地图核实",
+          "hours_week": {
+            "mon": [
+              [
+                "08:00",
+                "17:30"
+              ]
+            ],
+            "tue": [
+              [
+                "08:00",
+                "17:30"
+              ]
+            ],
+            "wed": [
+              [
+                "08:00",
+                "17:30"
+              ]
+            ],
+            "thu": [
+              [
+                "08:00",
+                "17:30"
+              ]
+            ],
+            "fri": [
+              [
+                "08:00",
+                "17:30"
+              ]
+            ],
+            "sat": [
+              [
+                "08:00",
+                "17:30"
+              ]
+            ],
+            "sun": [
+              [
+                "08:00",
+                "17:30"
+              ]
+            ]
+          }
+        },
+        {
+          "time": "15:00",
+          "name": "望江楼",
+          "type": "餐饮",
+          "address": "滨江路"
+        },
+        {
+          "time": "19:00",
+          "name": "星桥夜市",
+          "type": "活动",
+          "address": "星桥街"
+        }
+      ]
+    }
+  ],
+  "appendix": {
+    "todo": [],
+    "sources": [],
+    "changelog": []
+  }
+}

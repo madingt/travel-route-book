@@ -136,6 +136,13 @@ class Evidence(Case):
         write(self.out_path(card), out)
         self.assertEqual(self.status_of(card), "failed")
 
+    def test_hours_copied_but_not_structured_needs_review(self):
+        """Seen in the benchmark: hours text present, hours_week left empty → conflicts go blind."""
+        card, out = self.answer_poi("拙政园")
+        out["match"]["hours_week"] = {}
+        write(self.out_path(card), out)
+        self.assertEqual(self.status_of(card), "needs_review")
+
     def test_fabricated_quote_is_rejected(self):
         card, out = self.answer_poi("拙政园")
         out["evidence"][1]["quote"] = "营业时间：每天 06:00-22:00，全年无休"

@@ -1,0 +1,32 @@
+{
+  "id": "p-cb20e5dc",
+  "kind": "poi",
+  "fingerprint": "3c1f42ec5954f178",
+  "result": "found",
+  "match": {
+    "name": "临河面馆(老街店)",
+    "amap_id": "B0BENCH021",
+    "place_id": "",
+    "address": "老城区老街12号",
+    "lng": 119.938450,
+    "lat": 30.249660,
+    "phone": "0599-5550221",
+    "nearest_metro": "",
+    "hours": "06:30-13:30（卖完即止）",
+    "hours_note": "卖完即止",
+    "hours_week": {},
+    "closed_notice": ""
+  },
+  "candidates": [],
+  "evidence": [
+    {"file": "detail-B0BENCH021.txt", "field": "address", "quote": "地址：老城区老街12号"},
+    {"file": "detail-B0BENCH021.txt", "field": "hours", "quote": "营业时间：06:30-13:30（卖完即止）"}
+  ],
+  "flags": [
+    "匹配条目名称带「(老街店)」后缀，因门牌与 address_hint 一致而判为找到。",
+    "候选 B0BENCH020「临河面馆(新城店)」地址为新城区锦绣大道266号，不符，已排除；B0BENCH022「临河茶馆」名称与地址均不符，已排除。",
+    "原文营业时间未注明星期，hours_week 留空，未推断。",
+    "计划到访为周一 14:00，晚于原文营业时间 13:30 的结束时间。"
+  ],
+  "confidence": "medium"
+}

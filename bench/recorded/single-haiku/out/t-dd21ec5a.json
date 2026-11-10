@@ -1,0 +1,26 @@
+{
+  "id": "t-dd21ec5a", "kind": "ticket", "fingerprint": "46e094956381f528", "result": "found",
+  "rule": {"required": true, "channel": "青石博物馆微信小程序", "advance_days": 7, "release_time": "20:00",
+           "same_day": true, "closed_days": ["周一"], "last_entry": "16:00", "eligibility": null,
+           "price": "免费", "real_name": true},
+  "rule_year": "2026",
+  "unverified": ["eligibility"],
+  "sources": [{"file": "official.txt", "url": "https://www.qingshi-museum.example/visit/notice"}],
+  "evidence": [
+    {"file": "official.txt", "field": "required", "quote": "观众须实名预约后凭本人有效证件入馆"},
+    {"file": "official.txt", "field": "channel", "quote": "个人观众请通过「青石博物馆」微信小程序预约"},
+    {"file": "official.txt", "field": "advance_days", "quote": "可预约未来7天内的参观名额"},
+    {"file": "official.txt", "field": "release_time", "quote": "每晚20:00放出第7天的名额"},
+    {"file": "official.txt", "field": "same_day", "quote": "当日名额未约满时，可在现场扫码预约当日余票"},
+    {"file": "official.txt", "field": "closed_days", "quote": "每周一闭馆（法定节假日除外）"},
+    {"file": "official.txt", "field": "last_entry", "quote": "16:00停止入馆"},
+    {"file": "official.txt", "field": "price", "quote": "本馆实行免费不免票"},
+    {"file": "official.txt", "field": "real_name", "quote": "观众须实名预约后凭本人有效证件入馆"}
+  ],
+  "flags": [
+    "行程 d1 为周一（2026-11-09），原文每周一闭馆（法定节假日除外），需确认是否为节假日或改期",
+    "团队观众（20 人及以上）另需提前 3 个工作日致电预约，本卡按个人观众规则填写",
+    "same_day 按「当日名额未约满时，可在现场扫码预约当日余票」填为 true，指现场扫码的当日余票"
+  ],
+  "confidence": "high"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "p-a6e02a16", "kind": "poi", "fingerprint": "a8feba29adb3eeaf", "result": "not_found",
+  "match": null,
+  "candidates": [],
+  "evidence": [],
+  "flags": [
+    "原文搜索结果中没有「文汇巷3号」的纸间书店",
+    "文汇巷1号为社区服务中心，文汇路33号为纸箱批发，新城区人民路200号为新华书店，名称与门牌都对不上，均已排除",
+    "可能已关店或店名有误，需人工确认"
+  ],
+  "confidence": "low"
+}

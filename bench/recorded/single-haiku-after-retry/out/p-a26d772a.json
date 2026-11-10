@@ -1,0 +1,17 @@
+{
+  "id": "p-a26d772a", "kind": "poi", "fingerprint": "16fa2d5ff7dc05d5", "result": "ambiguous",
+  "match": null,
+  "candidates": [
+    {"name": "望江楼", "amap_id": "B0BENCH050", "address": "江东区滨江路18号", "lng": 119.990100, "lat": 30.255500},
+    {"name": "望江楼", "amap_id": "B0BENCH051", "address": "江西区滨江路702号", "lng": 119.930800, "lat": 30.238200}
+  ],
+  "evidence": [
+    {"file": "detail-B0BENCH050.txt", "field": "address", "quote": "地址：江东区滨江路18号"},
+    {"file": "detail-B0BENCH051.txt", "field": "address", "quote": "地址：江西区滨江路702号"}
+  ],
+  "flags": [
+    "任务卡的地址提示只有「滨江路」，没有门牌号，两家都对得上",
+    "两家分别在江东区滨江路18号和江西区滨江路702号，需补门牌后再确认"
+  ],
+  "confidence": "low"
+}

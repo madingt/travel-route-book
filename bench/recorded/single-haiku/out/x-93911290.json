@@ -1,0 +1,38 @@
+{
+  "id": "x-93911290", "kind": "xhs", "fingerprint": "8ba9df6630eab523", "candidate": "临河面馆", "result": "graded",
+  "notes": [
+    {"file": "note-1.txt", "title": "老街这碗面我吃了十年｜临河面馆", "author": "阿槿不吃香菜", "ip": "云栖",
+     "is_marketing": false, "marketing_hits": [], "stance": "混合",
+     "real_signals": [
+       {"quote": "点了焖肉面加一份爆鱼，一共27块"},
+       {"quote": "汤是红汤，偏甜，吃不惯甜口的慎点"},
+       {"quote": "缺点：店里很挤，没空调，夏天一身汗"},
+       {"quote": "十三点半就关门了，上次一点四十到的吃了闭门羹"},
+       {"quote": "卖完更早，周末十二点多就没浇头了"}
+     ]},
+    {"file": "note-2.txt", "title": "云栖必吃榜TOP1！临河面馆封神", "author": "云栖吃喝玩乐情报局", "ip": "云栖",
+     "is_marketing": true, "marketing_hits": ["模板文案", "口号收尾", "只有优点", "评论空洞"], "stance": "正面",
+     "real_signals": []},
+    {"file": "note-3.txt", "title": "临河面馆 早起才吃得到的焖肉面", "author": "周末不赖床", "ip": "上海",
+     "is_marketing": false, "marketing_hits": [], "stance": "混合",
+     "real_signals": [
+       {"quote": "两个人点了焖肉面、鳝丝面、一碟姜丝，59块"},
+       {"quote": "等了快十五分钟，值得"},
+       {"quote": "面偏软，喜欢硬面的记得跟老板说「硬点」"},
+       {"quote": "只收现金和扫码，不能刷卡"}
+     ]},
+    {"file": "note-4.txt", "title": "说说临河面馆让我失望的地方", "author": "理性探店的老陈", "ip": "云栖",
+     "is_marketing": false, "marketing_hits": [], "stance": "负面",
+     "real_signals": [
+       {"quote": "汤也淡。38一碗不值"}
+     ]}
+  ],
+  "independent_positive": 2,
+  "red_flags": [
+    {"type": "预制菜", "file": "note-4.txt", "quote": "爆鱼明显是预制菜，袋子里倒出来微波加热的"},
+    {"type": "预制菜", "file": "note-4.txt", "quote": "商场店确实是预制菜，中央厨房配送的，老街店不是"}
+  ],
+  "taste_filter_hits": [],
+  "planner_note": "2 篇非营销混合好评（老街店）；1 条评论称 13:30 关门；新城店差评提预制菜，老街店未涉及。",
+  "confidence": "high"
+}

@@ -617,6 +617,9 @@ def validate_poi(card, out, texts, P):
             P.add("NO_EVIDENCE", f"match.{field} given without {labels[0]} evidence")
     if m.get("address") and flat(m["address"])[-6:] not in quoted(good, "address"):
         P.add("VALUE_NOT_IN_QUOTE", f"address「{m['address']}」is not what the address quote says", "review")
+    if re.search(r"\d{1,2}[:：]\d{2}", m.get("hours") or "") and not m.get("hours_week"):
+        P.add("HOURS_NOT_STRUCTURED", f"hours「{m['hours']}」has clock times but hours_week is empty, so the "
+                                      f"schedule cannot be checked against it", "review")
     hours_text = quoted(good, "hours", "hours_week")
     times = sorted({t for spans in (m.get("hours_week") or {}).values() if isinstance(spans, list)
                     for sp in spans if isinstance(sp, list) for t in sp if isinstance(t, str)})
@@ -949,6 +952,8 @@ REVIEW_HINT = {
     "HUMAN_ACTION_REQUIRED": "a page needs sign-in / CAPTCHA: ask the user to do it in their own browser, "
                              "then `unblock` and collect again. Never enter credentials for them.",
     "RETRIES_EXHAUSTED": "the worker failed twice: the planner does this card by hand (same output format).",
+    "HOURS_NOT_STRUCTURED": "opening hours were copied as text but not turned into hours_week: fill hours_week "
+                            "in the out file (no weekday in the source = every day).",
     "VALUE_NOT_IN_QUOTE": "quotes are real but do not visibly state the value: open the out file, compare, "
                           "then fix it or `approve`.",
 }
