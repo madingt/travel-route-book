@@ -1,0 +1,16 @@
+{
+  "id": "p-a26d772a",
+  "kind": "poi",
+  "fingerprint": "16fa2d5ff7dc05d5",
+  "result": "ambiguous",
+  "match": null,
+  "candidates": [
+    {"amap_id": "B0BENCH050", "name": "望江楼", "address": "江东区滨江路18号", "location": "119.990100,30.255500", "type": "中餐厅"},
+    {"amap_id": "B0BENCH051", "name": "望江楼", "address": "江西区滨江路702号", "location": "119.930800,30.238200", "type": "中餐厅"}
+  ],
+  "evidence": [],
+  "flags": [
+    "两家都叫望江楼、门牌都在滨江路，分属江东区和江西区；任务卡的地址提示只写到滨江路，无法判断哪一家是要核对的地点，需人工确认。"
+  ],
+  "confidence": "low"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "p-a6e02a16",
+  "kind": "poi",
+  "fingerprint": "a8feba29adb3eeaf",
+  "result": "not_found",
+  "match": null,
+  "candidates": [],
+  "evidence": [],
+  "flags": [
+    "原文 poiinfo.json 的候选中没有名称为「纸间书店」且门牌为「文汇巷3号」的地点；与文汇巷相关的只有「文汇巷社区服务中心」（老城区文汇巷1号），名称和门牌都不符，不能当作匹配。可能已关店或未收录，需人工确认。"
+  ],
+  "confidence": "low"
+}

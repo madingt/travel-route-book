@@ -1,0 +1,19 @@
+{
+  "id": "t-6fc98ac6", "kind": "ticket", "fingerprint": "4ec5b85f97759ede", "result": "found",
+  "rule": {"required": null, "channel": null, "advance_days": null,
+           "release_time": null, "same_day": null, "closed_days": null,
+           "last_entry": null, "eligibility": null, "price": null, "real_name": null},
+  "rule_year": "2023",
+  "unverified": ["required", "channel", "advance_days", "release_time", "same_day", "closed_days", "last_entry", "eligibility", "price", "real_name"],
+  "sources": [
+    {"file": "official.txt", "url": "https://www.yunqi-pagoda.example/news/20230412"}
+  ],
+  "evidence": [
+    {"file": "official.txt", "field": "rule_year", "quote": "发布日期：2023年4月12日"}
+  ],
+  "flags": [
+    "唯一的官方来源是2023年4月12日的恢复开放公告，早于去年，所有字段放入 unverified。该公告当时写：通过「云栖文旅」公众号预约，提前3天开放预约，每日08:00放票，门票40元，每日限流3000人——需找到2025年及以后的官方规则再确认",
+    "blog.txt（travel-notes.example，非官方攻略）称现在不用预约、到门口买票、票价约60元、登塔另加20元；只作参考，与2023年官方公告说法不一致"
+  ],
+  "confidence": "low"
+}

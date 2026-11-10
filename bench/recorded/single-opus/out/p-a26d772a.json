@@ -1,0 +1,19 @@
+{
+  "id": "p-a26d772a", "kind": "poi", "fingerprint": "16fa2d5ff7dc05d5", "result": "ambiguous",
+  "match": null,
+  "candidates": [
+    {"name": "望江楼", "amap_id": "B0BENCH050", "address": "江东区滨江路18号", "lng": 119.9901, "lat": 30.2555,
+     "hours": "11:00-14:00 17:00-21:00", "note": "人均96元 本帮菜"},
+    {"name": "望江楼", "amap_id": "B0BENCH051", "address": "江西区滨江路702号", "lng": 119.9308, "lat": 30.2382,
+     "hours": "10:30-21:30", "note": "人均71元 江鲜"}
+  ],
+  "evidence": [
+    {"file": "detail-B0BENCH050.txt", "field": "address", "quote": "地址：江东区滨江路18号"},
+    {"file": "detail-B0BENCH051.txt", "field": "address", "quote": "地址：江西区滨江路702号"}
+  ],
+  "flags": [
+    "address_hint 只有「滨江路」，两家同名「望江楼」都在滨江路（江东区18号、江西区702号），无法确定是哪一家，需规划者确认",
+    "江东区18号那家有午休 14:00-17:00，行程 d2 周二 15:00 若去这家会遇到午休"
+  ],
+  "confidence": "low"
+}

@@ -1,0 +1,30 @@
+{
+  "id": "t-dd21ec5a", "kind": "ticket", "fingerprint": "46e094956381f528", "result": "found",
+  "rule": {"required": true, "channel": "青石博物馆 微信小程序", "advance_days": 7,
+           "release_time": "20:00", "same_day": true, "closed_days": ["周一"],
+           "last_entry": "16:00", "eligibility": null, "price": "免费", "real_name": true},
+  "rule_year": "2026",
+  "unverified": ["eligibility"],
+  "sources": [
+    {"file": "official.txt", "url": "https://www.qingshi-museum.example/visit/notice"}
+  ],
+  "evidence": [
+    {"file": "official.txt", "field": "rule_year", "quote": "发布时间：2026年2月18日"},
+    {"file": "official.txt", "field": "required", "quote": "一、本馆实行免费不免票，观众须实名预约后凭本人有效证件入馆。"},
+    {"file": "official.txt", "field": "real_name", "quote": "一、本馆实行免费不免票，观众须实名预约后凭本人有效证件入馆。"},
+    {"file": "official.txt", "field": "price", "quote": "一、本馆实行免费不免票，观众须实名预约后凭本人有效证件入馆。"},
+    {"file": "official.txt", "field": "channel", "quote": "二、个人观众请通过「青石博物馆」微信小程序预约，可预约未来7天内的参观名额，每晚20:00放出第7天的名额。"},
+    {"file": "official.txt", "field": "advance_days", "quote": "二、个人观众请通过「青石博物馆」微信小程序预约，可预约未来7天内的参观名额，每晚20:00放出第7天的名额。"},
+    {"file": "official.txt", "field": "release_time", "quote": "二、个人观众请通过「青石博物馆」微信小程序预约，可预约未来7天内的参观名额，每晚20:00放出第7天的名额。"},
+    {"file": "official.txt", "field": "same_day", "quote": "五、当日名额未约满时，可在现场扫码预约当日余票。"},
+    {"file": "official.txt", "field": "closed_days", "quote": "四、开放时间：周二至周日09:00-17:00，16:00停止入馆；每周一闭馆（法定节假日除外）。"},
+    {"file": "official.txt", "field": "last_entry", "quote": "四、开放时间：周二至周日09:00-17:00，16:00停止入馆；每周一闭馆（法定节假日除外）。"}
+  ],
+  "flags": [
+    "行程 d1 为2026-11-09 周一，官方写每周一闭馆（法定节假日除外）",
+    "当天预约仅限当日名额未约满时现场扫码预约余票",
+    "团队（20人及以上）规则为提前3个工作日电话预约、每日09:00受理，未填入 rule（只填个人规则）",
+    "原文未写开放对象限制，eligibility 未核实"
+  ],
+  "confidence": "high"
+}

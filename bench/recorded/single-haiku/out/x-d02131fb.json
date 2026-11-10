@@ -1,0 +1,37 @@
+{
+  "id": "x-d02131fb", "kind": "xhs", "fingerprint": "d4d3d15156021a5d", "candidate": "半山咖啡", "result": "graded",
+  "notes": [
+    {"file": "note-1.txt", "title": "半山咖啡｜山腰上的露台", "author": "橘子汽水儿", "ip": "云栖",
+     "is_marketing": false, "marketing_hits": [], "stance": "混合",
+     "real_signals": [
+       {"quote": "点了桂花拿铁32和一块巴斯克28"},
+       {"quote": "主打都是奶咖和特调，菜单上手冲只有两支豆子"},
+       {"quote": "周末露台要等位，我们等了四十分钟"},
+       {"quote": "停车只有路边六七个位子"},
+       {"quote": "工作日去基本不用等"}
+     ]},
+    {"file": "note-2.txt", "title": "云栖绝美咖啡馆合集 半山咖啡必须拥有姓名", "author": "探店小分队Vivi", "ip": "浙江",
+     "is_marketing": true, "marketing_hits": ["模板文案", "口号收尾", "只有优点", "评论空洞"], "stance": "正面",
+     "real_signals": []},
+    {"file": "note-3.txt", "title": "半山咖啡 手冲党慎入", "author": "只喝黑咖的螺丝钉", "ip": "云栖",
+     "is_marketing": false, "marketing_hits": [], "stance": "负面",
+     "real_signals": [
+       {"quote": "手冲点了埃塞水洗，45一杯，水温明显太高，萃过了，尾段发苦发涩"},
+       {"quote": "美式用的是深烘拼配，焦味重"},
+       {"quote": "店员说他们主要做奶咖"},
+       {"quote": "黑咖啡不建议专门来"}
+     ]}
+  ],
+  "independent_positive": 1,
+  "red_flags": [
+    {"type": "其他严重问题", "file": "note-3.txt", "quote": "另外10月底开始要装修，去之前先问"}
+  ],
+  "taste_filter_hits": [
+    {"file": "note-1.txt", "quote": "主打都是奶咖和特调，菜单上手冲只有两支豆子"},
+    {"file": "note-3.txt", "quote": "美式用的是深烘拼配，焦味重"},
+    {"file": "note-3.txt", "quote": "店员说他们主要做奶咖"},
+    {"file": "note-3.txt", "quote": "黑咖啡不建议专门来"}
+  ],
+  "planner_note": "1 篇非营销混合好评；1 篇黑咖负评称手冲萃过、美式焦；1 篇称 10 月底起装修。",
+  "confidence": "high"
+}

@@ -1,0 +1,42 @@
+{
+  "poi-museum": [
+    "poi",
+    "青石博物馆"
+  ],
+  "poi-noodle": [
+    "poi",
+    "临河面馆"
+  ],
+  "poi-cafe": [
+    "poi",
+    "半山咖啡"
+  ],
+  "poi-bookshop": [
+    "poi",
+    "纸间书店"
+  ],
+  "poi-riverside": [
+    "poi",
+    "望江楼"
+  ],
+  "poi-nightmarket": [
+    "poi",
+    "星桥夜市"
+  ],
+  "ticket-museum": [
+    "ticket",
+    "青石博物馆"
+  ],
+  "ticket-pagoda": [
+    "ticket",
+    "云栖塔"
+  ],
+  "xhs-noodle": [
+    "xhs",
+    "临河面馆"
+  ],
+  "xhs-cafe": [
+    "xhs",
+    "半山咖啡"
+  ]
+}

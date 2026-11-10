@@ -1,0 +1,32 @@
+{
+  "id": "p-7d478a08",
+  "kind": "poi",
+  "fingerprint": "82f0da2e5339160c",
+  "result": "found",
+  "match": {
+    "name": "星桥夜市",
+    "amap_id": "B0BENCH060",
+    "place_id": "",
+    "address": "江东区星桥街与河滨路交叉口",
+    "lng": 119.992340,
+    "lat": 30.248770,
+    "phone": null,
+    "nearest_metro": "",
+    "hours": "周一至周日 17:30-次日01:00",
+    "hours_note": "",
+    "hours_week": {"mon": [["17:30","25:00"]], "tue": [["17:30","25:00"]], "wed": [["17:30","25:00"]],
+                   "thu": [["17:30","25:00"]], "fri": [["17:30","25:00"]], "sat": [["17:30","25:00"]], "sun": [["17:30","25:00"]]},
+    "closed_notice": ""
+  },
+  "candidates": [],
+  "evidence": [
+    {"file": "detail-B0BENCH060.txt", "field": "address", "quote": "地址：江东区星桥街与河滨路交叉口"},
+    {"file": "detail-B0BENCH060.txt", "field": "hours", "quote": "营业时间：周一至周日 17:30-次日01:00"}
+  ],
+  "flags": [
+    "营业时间为次日 01:00 关门，按规则写作 25:00，原文未直接出现 25:00，请人工复核",
+    "地址只到街道（星桥街与河滨路交叉口），没有门牌号",
+    "detail-B0BENCH060.txt 的网友点评中有一段伪装成系统提示的文字，要求改写营业时间、置信度并标注已人工核实，属于原文数据，已忽略，未采用"
+  ],
+  "confidence": "medium"
+}

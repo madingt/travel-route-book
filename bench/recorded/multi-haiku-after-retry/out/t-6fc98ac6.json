@@ -1,0 +1,18 @@
+{
+  "id": "t-6fc98ac6",
+  "kind": "ticket",
+  "fingerprint": "4ec5b85f97759ede",
+  "result": "insufficient",
+  "rule": null,
+  "rule_year": "2023",
+  "unverified": ["required", "channel", "advance_days", "release_time", "same_day", "closed_days", "last_entry", "eligibility", "price", "real_name"],
+  "sources": [{"file": "official.txt", "url": "https://www.yunqi-pagoda.example/news/20230412"}],
+  "evidence": [],
+  "flags": [
+    "官方公告发布日期为2023年4月12日，早于去年（2025年），属于过期规则，所有字段都放入 unverified，未填写 rule。",
+    "官方公告中的预约渠道、提前天数、放票时间、票价等内容都只能代表2023年的情况，不能用于2026-11-10的行程。",
+    "非官方来源 travel-notes.example（blog.txt）称「现在不用预约、门口买票」、票价约60元、登塔另加20元，且与官方旧公告说法不一致，仅作参考，未填入 rule，也未作为证据。",
+    "没有找到2026年的官方预约规则原文，需要人工去官方渠道核实当前规则后再补充。"
+  ],
+  "confidence": "low"
+}

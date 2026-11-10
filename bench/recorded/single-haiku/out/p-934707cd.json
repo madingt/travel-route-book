@@ -1,0 +1,25 @@
+{
+  "id": "p-934707cd", "kind": "poi", "fingerprint": "f95b15b2595f7c95", "result": "found",
+  "match": {
+    "name": "青石博物馆", "amap_id": "B0BENCH001", "place_id": null,
+    "address": "老城区青石路88号", "lng": 119.940310, "lat": 30.251870,
+    "phone": "0599-5550101", "nearest_metro": "2号线青石路站B口步行300米",
+    "hours": "周二至周日 09:00-17:00（16:00停止入馆），周一闭馆（法定节假日除外）",
+    "hours_note": "16:00 停止入馆，周一闭馆（法定节假日除外）",
+    "hours_week": {"mon": [], "tue": [["09:00","17:00"]], "wed": [["09:00","17:00"]],
+                   "thu": [["09:00","17:00"]], "fri": [["09:00","17:00"]], "sat": [["09:00","17:00"]], "sun": [["09:00","17:00"]]},
+    "closed_notice": ""
+  },
+  "candidates": [],
+  "evidence": [
+    {"file": "detail-B0BENCH001.txt", "field": "address", "quote": "地址：老城区青石路88号"},
+    {"file": "detail-B0BENCH001.txt", "field": "hours", "quote": "营业时间：周二至周日 09:00-17:00（16:00停止入馆），周一闭馆（法定节假日除外）"},
+    {"file": "detail-B0BENCH001.txt", "field": "phone", "quote": "电话：0599-5550101"},
+    {"file": "detail-B0BENCH001.txt", "field": "nearest_metro", "quote": "附近地铁：2号线青石路站B口步行300米"}
+  ],
+  "flags": [
+    "行程 d1 为周一，原文周一闭馆（法定节假日除外），需确认该日是否为法定节假日或改期",
+    "同地址的 B0BENCH003 青石博物馆文创店（购物）与 B0BENCH002 青石博物馆-停车场 已排除"
+  ],
+  "confidence": "high"
+}

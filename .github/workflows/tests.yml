@@ -1,0 +1,21 @@
+name: tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Regression tests (offline, stdlib only)
+        run: python3 -m unittest discover -s tests -v
+      - name: Example trip still builds
+        run: |
+          python3 travel-route-book/scripts/build_routebook.py travel-route-book/assets/trip.example.json /tmp/routebook.html
+          python3 travel-route-book/scripts/delegate.py conflicts travel-route-book/assets/trip.example.json
